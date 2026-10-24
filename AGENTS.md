@@ -88,13 +88,14 @@ npm run dev
 npm test
 ```
 
-## 4. Security Rules (Mandatory)
+## 4. Security Rules & Git Protocol (Mandatory)
 
 1. **Never Hardcode Secrets**: No API keys, passwords, private keys, or tokens in source code, commits, chat messages, or logs.
 2. **Never Trust the Client**: Role, department, and permissions must be derived exclusively on the server from verified database records.
 3. **Fail Closed**: Any error in authentication, authorization, or database lookup must reject the request. Never fall back to unrestricted retrieval.
 4. **Sanitize Errors**: Return generic error messages to clients. Never expose stack traces or internal server details in API responses.
 5. **No Dangerous Execution**: Never execute macros, active content, or untrusted code in uploaded documents.
+6. **No Automatic Remote Push**: Never run `git push` automatically. After completing a phase and running tests, commit locally, summarize the changes, and notify the user so they can review and push to remote themselves.
 
 ## 5. Working Phase-by-Phase
 
