@@ -62,3 +62,30 @@ class DocumentCreate(BaseModel):
     file_size_bytes: int
     checksum_sha256: str
     is_confidential: bool = False
+
+
+class DocumentPassageRead(BaseModel):
+    """Passage location and text representation."""
+
+    location: str
+    text: str
+    passage_index: int
+
+
+class DocumentContentResponse(BaseModel):
+    """Extracted text passages and provenance for an authorized document."""
+
+    document_id: uuid.UUID
+    title: str
+    passages: list[DocumentPassageRead]
+    total_passages: int
+    total_characters: int
+
+
+class DocumentUploadResponse(BaseModel):
+    """Upload endpoint response including ingestion and extraction status."""
+
+    document: DocumentRead
+    extraction_status: str
+    total_passages: int
+    warning_message: str | None = None

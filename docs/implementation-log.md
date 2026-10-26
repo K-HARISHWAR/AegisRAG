@@ -90,3 +90,30 @@ This log tracks architectural decisions, completed phases, verification commands
     - Non-existent document returns HTTP 404
     - Audit event persisted for allowed and denied requests
 - **Next Step**: Phase 4 — Document upload and safe text extraction.
+
+---
+
+## Phase 4: Document Upload and Safe Text Extraction
+- **Date**: 2026-10-26
+- **Completed Deliverables**:
+  - `backend/app/services/storage.py`: Storage provider abstraction (`StorageProvider` ABC) and secure `LocalStorageProvider` with directory traversal defenses (`_resolve_safe_path`).
+  - `backend/app/services/validation.py`: Strict file upload validation:
+    - 20 MB size limit (HTTP 413)
+    - Extension allowlist (`.pdf`, `.docx`, `.xlsx`)
+    - Magic byte / content signature verification (`%PDF-`, `PK\x03\x04` with OpenXML package structure verification)
+    - SHA-256 checksum calculation for integrity tracking
+    - Filename sanitization to prevent path manipulation.
+  - `backend/app/services/extraction.py`: Safe multi-format extractors preserving citation locations:
+    - PDF: Page-by-page extraction (`Page {i}`), scanned/empty PDF detection returning `status="scanned_warning"`
+    - DOCX: Paragraphs and table cell extraction (`Paragraph {i}`, `Table {i}, Row {j}`) without macro execution
+    - XLSX: Sheet and cell coordinate preservation (`Sheet: {name}!Row {i}`) with `data_only=True` mode
+    - `extract_document_text`: Unified dispatcher with safe exception handling.
+  - `backend/app/api/routes/documents.py`:
+    - `POST /api/v1/documents/upload`: Multipart upload with department RBAC enforcement, magic byte verification, storage persistence, and text extraction.
+    - `GET /api/v1/documents/{id}/content`: Protected endpoint returning extracted passages with citation coordinates for authorized users.
+    - `DELETE /api/v1/documents/{id}`: Idempotent document deletion removing stored binary and updating database status.
+  - `backend/tests/test_extraction.py` & `backend/tests/test_document_upload.py`: 15 new tests covering extraction provenance, scanned PDF warnings, corrupt file handling, extension validation, magic byte verification, oversized limits, and idempotent deletion.
+- **Verification Commands Run**:
+  - `pytest backend/tests -v` -> 53 passed in 20.83s
+- **Next Step**: Phase 5 — Chunking, embeddings, and vector indexing.
+

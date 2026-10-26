@@ -2,7 +2,15 @@
 
 from app.schemas.auth import LoginRequest, Token, TokenPayload
 from app.schemas.user import UserRead, UserCreate, RoleRead, DepartmentRead
-from app.schemas.document import DocumentRead, DocumentCreate, DocumentGrantRead, DocumentGrantCreate
+from app.schemas.document import (
+    DocumentRead,
+    DocumentCreate,
+    DocumentGrantRead,
+    DocumentGrantCreate,
+    DocumentPassageRead,
+    DocumentContentResponse,
+    DocumentUploadResponse,
+)
 from app.schemas.audit import AuditEventRead
 
 __all__ = [
@@ -17,5 +25,8 @@ __all__ = [
     "DocumentCreate",
     "DocumentGrantRead",
     "DocumentGrantCreate",
+    "DocumentPassageRead",
+    "DocumentContentResponse",
+    "DocumentUploadResponse",
     "AuditEventRead",
 ]

@@ -1,8 +1,8 @@
-"""Document and grant management routes enforcing server-side RBAC."""
+"""Document ingestion, extraction, and access management routes enforcing server-side RBAC."""
 
 import uuid
 from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,14 +11,25 @@ from app.api.deps import get_current_user, get_db
 from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentGrantCreate, DocumentGrantRead, DocumentRead
+from app.schemas.document import (
+    DocumentContentResponse,
+    DocumentCreate,
+    DocumentGrantCreate,
+    DocumentGrantRead,
+    DocumentPassageRead,
+    DocumentRead,
+    DocumentUploadResponse,
+)
 from app.services.audit import log_audit_event
+from app.services.extraction import extract_document_text
 from app.services.policy import (
     can_manage_grants,
     can_read_document,
     can_upload_document,
     get_authorized_document_ids,
 )
+from app.services.storage import StorageProvider, get_storage_provider
+from app.services.validation import FileValidationError, validate_file_upload
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -47,6 +58,185 @@ async def list_documents(
     result = await db.execute(stmt)
     docs = result.scalars().all()
     return [DocumentRead.model_validate(doc) for doc in docs]
+
+
+@router.post(
+    "",
+    response_model=DocumentRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register document metadata",
+    description="Registers a new document metadata record. User must be a manager for the department or an admin.",
+)
+async def create_document(
+    payload: DocumentCreate,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentRead:
+    """Register document record with server-enforced upload permissions."""
+    ip_address = request.client.host if request.client else None
+
+    if not can_upload_document(current_user, payload.department_id):
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="upload_document",
+            outcome="deny",
+            resource_type="document",
+            details={"department_id": str(payload.department_id)},
+            ip_address=ip_address,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to upload documents for this department",
+        )
+
+    storage_key = f"doc_{uuid.uuid4().hex}"
+    doc = Document(
+        title=payload.title,
+        owner_id=current_user.id,
+        department_id=payload.department_id,
+        storage_key=storage_key,
+        file_type=payload.file_type.lower(),
+        file_size_bytes=payload.file_size_bytes,
+        checksum_sha256=payload.checksum_sha256,
+        is_confidential=payload.is_confidential,
+        status="uploaded",
+        version=1,
+    )
+
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    await log_audit_event(
+        db=db,
+        actor_user_id=current_user.id,
+        action="upload_document",
+        outcome="allow",
+        resource_id=str(doc.id),
+        resource_type="document",
+        details={"title": doc.title, "department_id": str(doc.department_id)},
+        ip_address=ip_address,
+    )
+
+    return DocumentRead.model_validate(doc)
+
+
+@router.post(
+    "/upload",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and ingest document",
+    description="Upload a document file (PDF, DOCX, XLSX up to 20MB). Validates signatures and extracts text safely.",
+)
+async def upload_document(
+    request: Request,
+    department_id: Annotated[uuid.UUID, Form(description="Target department ID")],
+    file: Annotated[UploadFile, File(description="Document binary file (PDF, DOCX, XLSX)")],
+    is_confidential: Annotated[bool, Form(description="Whether document requires manager privileges")] = False,
+    title: Annotated[str | None, Form(description="Optional custom display title")] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    storage: StorageProvider = Depends(get_storage_provider),
+) -> DocumentUploadResponse:
+    """Ingest, validate, store, and safely extract document text with provenance."""
+    ip_address = request.client.host if request.client else None
+
+    # 1. Server-side permission check: user must be authorized to upload to target department
+    if not can_upload_document(current_user, department_id):
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="upload_document",
+            outcome="deny",
+            resource_type="document",
+            details={"department_id": str(department_id), "reason": "unauthorized_department"},
+            ip_address=ip_address,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to upload documents for this department",
+        )
+
+    # 2. Read and validate file content
+    try:
+        file_bytes = await file.read()
+        validated = validate_file_upload(
+            filename=file.filename or "uploaded_document",
+            file_bytes=file_bytes,
+        )
+    except FileValidationError as err:
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="upload_document",
+            outcome="deny",
+            resource_type="document",
+            details={"filename": file.filename, "error": err.message},
+            ip_address=ip_address,
+        )
+        raise HTTPException(status_code=err.status_code, detail=err.message)
+
+    display_title = title.strip() if title and title.strip() else validated.sanitized_filename
+
+    # 3. Save to storage abstraction with server-generated key
+    storage_key = f"{uuid.uuid4().hex}.{validated.file_type}"
+    try:
+        await storage.save_file(storage_key, file_bytes)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist document to storage",
+        )
+
+    # 4. Safe text extraction
+    extraction = extract_document_text(validated.file_type, file_bytes)
+
+    # Lifecycle status based on extraction outcome
+    doc_status = "failed" if extraction.status == "failed" else "uploaded"
+
+    # 5. Persist document record in PostgreSQL
+    doc = Document(
+        title=display_title,
+        owner_id=current_user.id,
+        department_id=department_id,
+        storage_key=storage_key,
+        file_type=validated.file_type,
+        file_size_bytes=validated.file_size_bytes,
+        checksum_sha256=validated.checksum_sha256,
+        is_confidential=is_confidential,
+        status=doc_status,
+        version=1,
+    )
+
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    # Log successful ingestion
+    await log_audit_event(
+        db=db,
+        actor_user_id=current_user.id,
+        action="upload_document",
+        outcome="allow",
+        resource_id=str(doc.id),
+        resource_type="document",
+        details={
+            "title": doc.title,
+            "department_id": str(department_id),
+            "passages_count": len(extraction.passages),
+            "status": extraction.status,
+        },
+        ip_address=ip_address,
+    )
+
+    return DocumentUploadResponse(
+        document=DocumentRead.model_validate(doc),
+        extraction_status=extraction.status,
+        total_passages=len(extraction.passages),
+        warning_message=extraction.warning_message,
+    )
 
 
 @router.get(
@@ -119,67 +309,108 @@ async def get_document(
     return DocumentRead.model_validate(document)
 
 
-@router.post(
-    "",
-    response_model=DocumentRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register document metadata",
-    description="Registers a new document. User must be a department manager for the target department or an admin.",
+@router.get(
+    "/{document_id}/content",
+    response_model=DocumentContentResponse,
+    summary="Get extracted document content",
+    description="Fetches extracted text passages with location coordinates for an authorized document.",
 )
-async def create_document(
-    payload: DocumentCreate,
+async def get_document_content(
+    document_id: uuid.UUID,
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> DocumentRead:
-    """Register document record with server-enforced upload permissions."""
+    storage: StorageProvider = Depends(get_storage_provider),
+) -> DocumentContentResponse:
+    """Retrieve extracted passages with exact citation locations for authorized user."""
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if document is None or document.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not await can_read_document(current_user, document, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to document content")
+
+    try:
+        file_bytes = await storage.read_file(document.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document binary not found in storage")
+
+    extraction = extract_document_text(document.file_type, file_bytes)
+
+    return DocumentContentResponse(
+        document_id=document.id,
+        title=document.title,
+        passages=[
+            DocumentPassageRead(location=p.location, text=p.text, passage_index=p.passage_index)
+            for p in extraction.passages
+        ],
+        total_passages=len(extraction.passages),
+        total_characters=extraction.total_characters,
+    )
+
+
+@router.delete(
+    "/{document_id}",
+    summary="Delete document",
+    description="Idempotently deletes a document, removing its stored file and updating database status.",
+)
+async def delete_document(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage: StorageProvider = Depends(get_storage_provider),
+) -> dict[str, str]:
+    """Idempotently delete document and remove underlying storage file."""
     ip_address = request.client.host if request.client else None
 
-    if not can_upload_document(current_user, payload.department_id):
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if document.status == "deleted":
+        return {"status": "deleted", "document_id": str(document.id)}
+
+    if not can_manage_grants(current_user, document):
         await log_audit_event(
             db=db,
             actor_user_id=current_user.id,
-            action="upload_document",
+            action="delete_document",
             outcome="deny",
+            resource_id=str(document.id),
             resource_type="document",
-            details={"department_id": str(payload.department_id)},
             ip_address=ip_address,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not authorized to upload documents for this department",
+            detail="You are not authorized to delete this document",
         )
 
-    storage_key = f"doc_{uuid.uuid4().hex}"
-    doc = Document(
-        title=payload.title,
-        owner_id=current_user.id,
-        department_id=payload.department_id,
-        storage_key=storage_key,
-        file_type=payload.file_type.lower(),
-        file_size_bytes=payload.file_size_bytes,
-        checksum_sha256=payload.checksum_sha256,
-        is_confidential=payload.is_confidential,
-        status="uploaded",
-        version=1,
-    )
+    # 1. Remove file from storage
+    await storage.delete_file(document.storage_key)
 
-    db.add(doc)
+    # 2. Mark status as deleted in database
+    document.status = "deleted"
+    db.add(document)
     await db.commit()
-    await db.refresh(doc)
 
     await log_audit_event(
         db=db,
         actor_user_id=current_user.id,
-        action="upload_document",
+        action="delete_document",
         outcome="allow",
-        resource_id=str(doc.id),
+        resource_id=str(document.id),
         resource_type="document",
-        details={"title": doc.title, "department_id": str(doc.department_id)},
         ip_address=ip_address,
     )
 
-    return DocumentRead.model_validate(doc)
+    return {"status": "deleted", "document_id": str(document.id)}
 
 
 @router.post(
