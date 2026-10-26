@@ -54,3 +54,39 @@ This log tracks architectural decisions, completed phases, verification commands
     - `GET /health/live` -> 200 OK, `{"status":"live"}` with `X-Request-ID`
     - `GET /health/ready` -> 200 OK, `{"status":"ready","checks":{"configuration":"healthy","storage":"healthy"}}` (zero path/credential leakage)
 - **Next Step**: Phase 3 — Database, authentication, and RBAC model.
+
+---
+
+## Phase 3: Database, Authentication, and RBAC Model
+- **Date**: 2026-10-26
+- **Completed Deliverables**:
+  - `backend/app/models/`: SQLAlchemy 2.0 ORM models with platform-independent GUID support:
+    - `Department`: organizational units (`Engineering`, `HR`).
+    - `Role` & `user_roles`: RBAC roles (`employee`, `department_manager`, `admin`).
+    - `User`: server-verified identity, bcrypt hashed password, active/superuser flags, department association.
+    - `Document`: title, owner, department, unique storage key, file metadata, SHA-256 checksum, confidentiality flag, lifecycle status.
+    - `DocumentGrant`: explicit document access grants to user or role with check constraint.
+    - `AuditEvent`: immutable audit trail recording actor, action, outcome, resource ID, IP address, and request ID.
+  - `backend/app/core/security.py`: Salted bcrypt password hashing (`hash_password`, `verify_password`) and PyJWT token generation/decoding (`create_access_token`, `decode_access_token`).
+  - `backend/app/services/policy.py`: Centralized default-deny authorization policies (`can_read_document`, `can_upload_document`, `can_manage_grants`, `can_manage_users`, `get_authorized_document_ids`).
+  - `backend/app/services/audit.py`: Audit logging service with sensitive parameter sanitization.
+  - `backend/app/api/deps.py`: Server-verified dependencies resolving authenticated user and active roles/department directly from database records.
+  - `backend/app/api/routes/`:
+    - `auth.py`: `POST /api/v1/auth/login`, `GET /api/v1/auth/me`.
+    - `documents.py`: `GET /api/v1/documents`, `GET /api/v1/documents/{id}`, `POST /api/v1/documents`, `POST /api/v1/documents/{id}/grants`.
+    - `admin.py`: `GET /api/v1/admin/users`, `GET /api/v1/admin/audit-logs`.
+  - `backend/alembic/`: Async migration configuration and `0001_initial_rbac_schema.py` initial migration.
+  - `infra/docker/docker-compose.yml`: Container definitions for local PostgreSQL and backend services.
+  - `backend/app/db/seed.py`: Seed data script populating synthetic departments, roles, users (`alice`, `bob`, `charlie`, `diana`, `admin`, `inactive`), documents, and grants.
+  - `backend/tests/`: Comprehensive test suite with 38 unit and integration tests covering password security, JWT verification, policy logic, authentication routes, and RBAC access isolation.
+- **Verification Commands Run**:
+  - `pytest backend/tests -v` -> 38 passed in 31.62s
+    - Cross-department access denied to unauthorized employees (HTTP 403)
+    - Confidential document access denied within department without grant (HTTP 403)
+    - Explicit document grant allows cross-department access (HTTP 200)
+    - Manager can access own department confidential documents (HTTP 200)
+    - Altered client-supplied role/department headers strictly ignored (server-verified authorization)
+    - Inactive user rejected at authentication (HTTP 401)
+    - Non-existent document returns HTTP 404
+    - Audit event persisted for allowed and denied requests
+- **Next Step**: Phase 4 — Document upload and safe text extraction.

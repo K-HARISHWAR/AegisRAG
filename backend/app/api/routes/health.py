@@ -81,6 +81,19 @@ async def health_ready(
         checks["storage"] = "unhealthy"
         is_ready = False
 
+    # 3. Database connectivity check (zero-leakage)
+    try:
+        from app.db.session import engine
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["database"] = "healthy"
+    except Exception as exc:
+        logger.warning("Database readiness check failed: %s", str(exc))
+        checks["database"] = "unhealthy"
+        if settings.ENVIRONMENT == "production":
+            is_ready = False
+
     overall_status = "ready" if is_ready else "unhealthy"
     if not is_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
