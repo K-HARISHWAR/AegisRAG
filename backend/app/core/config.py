@@ -39,13 +39,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    # PostgreSQL Database
+    # Database (Defaults to local SQLite for zero-config dev; override with PostgreSQL in production)
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "aegisrag"
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/aegisrag"
+    DATABASE_URL: str = "sqlite+aiosqlite:///backend/data/aegisrag.db"
 
     # Storage Configuration
     STORAGE_TYPE: Literal["local", "s3"] = "local"

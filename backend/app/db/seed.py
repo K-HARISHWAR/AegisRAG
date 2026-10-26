@@ -180,15 +180,23 @@ async def seed_database(db: AsyncSession) -> dict[str, Any]:
 
 async def main() -> None:
     """Standalone entry point to seed database."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    from app.core.config import get_settings
+    current_settings = get_settings()
+    print(f"Target Database: {current_settings.DATABASE_URL}")
 
-    async with AsyncSessionLocal() as session:
-        await seed_database(session)
-    print("Database schema created and synthetic test data seeded successfully.")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with AsyncSessionLocal() as session:
+            await seed_database(session)
+        print("Database schema created and synthetic test data seeded successfully.")
+    except Exception as exc:
+        print(f"\n[ERROR] Failed to connect to database at {current_settings.DATABASE_URL}: {exc}")
+        print("[HINT] If PostgreSQL is not running, you can use local SQLite by ensuring DATABASE_URL='sqlite+aiosqlite:///backend/data/aegisrag.db' or creating a .env file.")
+        raise
 
 
 if __name__ == "__main__":
-    from typing import Any
     asyncio.run(main())

@@ -6,12 +6,15 @@ from sqlalchemy.orm import declarative_base
 
 from app.core.config import get_settings
 
+from pathlib import Path
+
 settings = get_settings()
 
-# Configure engine arguments
+# Configure engine arguments and ensure directory exists for SQLite
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    Path("backend/data").mkdir(parents=True, exist_ok=True)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
