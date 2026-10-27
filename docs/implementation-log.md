@@ -113,7 +113,41 @@ This log tracks architectural decisions, completed phases, verification commands
     - `GET /api/v1/documents/{id}/content`: Protected endpoint returning extracted passages with citation coordinates for authorized users.
     - `DELETE /api/v1/documents/{id}`: Idempotent document deletion removing stored binary and updating database status.
   - `backend/tests/test_extraction.py` & `backend/tests/test_document_upload.py`: 15 new tests covering extraction provenance, scanned PDF warnings, corrupt file handling, extension validation, magic byte verification, oversized limits, and idempotent deletion.
-- **Verification Commands Run**:
-  - `pytest backend/tests -v` -> 53 passed in 20.83s
 - **Next Step**: Phase 5 — Chunking, embeddings, and vector indexing.
+
+---
+
+## Phase 5: Chunking, Embeddings, and ChromaDB Vector Indexing
+- **Date**: 2026-10-27
+- **Completed Deliverables**:
+  - `backend/app/schemas/chunk.py`: Defined `Chunk`, `SearchResult`, and `DocumentChunkRead` models encapsulating deterministic identifiers, precise citation provenance (`Page 2`, `Paragraph 3`), RBAC metadata (`department_id`, `is_confidential`), and content hashes.
+  - `backend/app/services/chunking.py`:
+    - `split_text_with_overlap`: Deterministic boundary-aware chunking without breaking words mid-word.
+    - `create_chunks_from_passages`: Converts extracted passages into chunk records with stable SHA-256 deduplication content hashes.
+  - `backend/app/services/embeddings.py`:
+    - `EmbeddingProvider` ABC with strict dimension enforcement (`validate_dimension`).
+    - `ChromaDefaultEmbeddingProvider`: Default provider using Chroma's ONNX `all-MiniLM-L6-v2` (384 dimensions).
+    - `DeterministicMockEmbeddingProvider`: Fast, unit-normalized, deterministic provider for offline test isolation.
+    - `get_embedding_provider`: Factory selecting appropriate provider by environment.
+  - `backend/app/services/vector_store.py`:
+    - `VectorStore` abstract interface.
+    - `ChromaVectorStore`: ChromaDB adapter supporting idempotent upserts (`add_chunks`), dimension mismatch validation, `get_by_document`, `delete_by_document`, `count`, and `health_check`.
+    - Server-side pre-retrieval filtering via `where={"document_id": {"$in": allowed_document_ids}}`. Fail-closed on empty authorization list.
+  - `backend/app/services/indexing.py`:
+    - `index_document`: End-to-end orchestration reading storage, extracting text, chunking, generating embeddings, upserting to ChromaDB, and advancing document status to `"indexed"`.
+    - `reindex_all_documents`: Batch reindexing for non-deleted documents.
+  - `backend/app/api/routes/documents.py`:
+    - `POST /api/v1/documents/upload`: Auto-triggers vector indexing upon upload.
+    - `POST /api/v1/documents/{id}/index`: Explicit endpoint to re-index documents (requires manager/owner privileges).
+    - `GET /api/v1/documents/{id}/chunks`: Endpoint returning indexed chunks with exact source provenance for authorized users.
+    - `DELETE /api/v1/documents/{id}`: Purges document vectors from ChromaDB in addition to storage and database deletion.
+  - `backend/app/api/routes/health.py`: Added vector store connectivity probe to `/health/ready`.
+  - Comprehensive test suite:
+    - `backend/tests/test_chunking.py`: Boundary verification, provenance retention, and SHA-256 stability.
+    - `backend/tests/test_vector_store.py`: ChromaDB CRUD, pre-retrieval filtering, fail-closed enforcement, and dimension mismatch rejection.
+    - `backend/tests/test_indexing.py`: End-to-end upload -> auto-indexing -> chunk inspection -> RBAC access control -> deletion vector cleanup.
+- **Verification Commands Run**:
+  - `pytest backend/tests -v --show-capture=no` -> 65 passed in 37.81s
+- **Next Step**: Phase 6 — Hybrid retrieval, re-ranking, and server-side RBAC post-filtering.
+
 

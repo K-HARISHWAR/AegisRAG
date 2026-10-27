@@ -1,5 +1,8 @@
 """Pytest fixtures for backend tests with isolated test database and seeded accounts."""
 
+import os
+os.environ["ENVIRONMENT"] = "test"
+
 import uuid
 from typing import AsyncGenerator
 import pytest

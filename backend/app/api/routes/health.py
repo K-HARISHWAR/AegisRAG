@@ -94,6 +94,20 @@ async def health_ready(
         if settings.ENVIRONMENT == "production":
             is_ready = False
 
+    # 4. Vector store readiness check
+    try:
+        from app.services.vector_store import get_vector_store
+        vstore = get_vector_store()
+        if vstore.health_check():
+            checks["vector_store"] = "healthy"
+        else:
+            checks["vector_store"] = "unhealthy"
+            is_ready = False
+    except Exception as exc:
+        logger.warning("Vector store readiness check failed: %s", str(exc))
+        checks["vector_store"] = "unhealthy"
+        is_ready = False
+
     overall_status = "ready" if is_ready else "unhealthy"
     if not is_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

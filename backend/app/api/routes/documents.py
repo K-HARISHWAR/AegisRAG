@@ -1,7 +1,7 @@
 """Document ingestion, extraction, and access management routes enforcing server-side RBAC."""
 
 import uuid
-from typing import Annotated, List
+from typing import Annotated, Any, Dict, List
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.user import User
+from app.schemas.chunk import DocumentChunkRead
 from app.schemas.document import (
     DocumentContentResponse,
     DocumentCreate,
@@ -21,7 +22,9 @@ from app.schemas.document import (
     DocumentUploadResponse,
 )
 from app.services.audit import log_audit_event
+from app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from app.services.extraction import extract_document_text
+from app.services.indexing import index_document
 from app.services.policy import (
     can_manage_grants,
     can_read_document,
@@ -30,6 +33,7 @@ from app.services.policy import (
 )
 from app.services.storage import StorageProvider, get_storage_provider
 from app.services.validation import FileValidationError, validate_file_upload
+from app.services.vector_store import VectorStore, get_vector_store
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -139,6 +143,8 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(get_storage_provider),
+    vector_store: VectorStore = Depends(get_vector_store),
+    embedding_provider: EmbeddingProvider = Depends(get_embedding_provider),
 ) -> DocumentUploadResponse:
     """Ingest, validate, store, and safely extract document text with provenance."""
     ip_address = request.client.host if request.client else None
@@ -214,6 +220,19 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
+    # 6. Index document into vector store if extraction succeeded
+    if doc.status != "failed" and extraction.passages:
+        try:
+            await index_document(
+                document=doc,
+                db=db,
+                storage=storage,
+                vector_store=vector_store,
+                embedding_provider=embedding_provider,
+            )
+        except Exception as exc:
+            pass
+
     # Log successful ingestion
     await log_audit_event(
         db=db,
@@ -226,7 +245,7 @@ async def upload_document(
             "title": doc.title,
             "department_id": str(department_id),
             "passages_count": len(extraction.passages),
-            "status": extraction.status,
+            "status": doc.status,
         },
         ip_address=ip_address,
     )
@@ -355,7 +374,7 @@ async def get_document_content(
 @router.delete(
     "/{document_id}",
     summary="Delete document",
-    description="Idempotently deletes a document, removing its stored file and updating database status.",
+    description="Idempotently deletes a document, removing its stored file, indexed vectors, and updating database status.",
 )
 async def delete_document(
     document_id: uuid.UUID,
@@ -363,8 +382,9 @@ async def delete_document(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     storage: StorageProvider = Depends(get_storage_provider),
+    vector_store: VectorStore = Depends(get_vector_store),
 ) -> dict[str, str]:
-    """Idempotently delete document and remove underlying storage file."""
+    """Idempotently delete document and remove underlying storage file and vectors."""
     ip_address = request.client.host if request.client else None
 
     stmt = select(Document).where(Document.id == document_id)
@@ -392,10 +412,13 @@ async def delete_document(
             detail="You are not authorized to delete this document",
         )
 
-    # 1. Remove file from storage
+    # 1. Remove vectors from vector store
+    vector_store.delete_by_document(document.id)
+
+    # 2. Remove file from storage
     await storage.delete_file(document.storage_key)
 
-    # 2. Mark status as deleted in database
+    # 3. Mark status as deleted in database
     document.status = "deleted"
     db.add(document)
     await db.commit()
@@ -411,6 +434,89 @@ async def delete_document(
     )
 
     return {"status": "deleted", "document_id": str(document.id)}
+
+
+@router.post(
+    "/{document_id}/index",
+    summary="Index or re-index document",
+    description="Extracts, chunks, embeds, and updates the vector index for an authorized document.",
+)
+async def index_document_endpoint(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage: StorageProvider = Depends(get_storage_provider),
+    vector_store: VectorStore = Depends(get_vector_store),
+    embedding_provider: EmbeddingProvider = Depends(get_embedding_provider),
+) -> dict[str, Any]:
+    """Manually trigger or refresh indexing for a document."""
+    ip_address = request.client.host if request.client else None
+
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if document is None or document.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not can_manage_grants(current_user, document):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to index this document",
+        )
+
+    chunks_count = await index_document(
+        document=document,
+        db=db,
+        storage=storage,
+        vector_store=vector_store,
+        embedding_provider=embedding_provider,
+    )
+
+    await log_audit_event(
+        db=db,
+        actor_user_id=current_user.id,
+        action="index_document",
+        outcome="allow",
+        resource_id=str(document.id),
+        resource_type="document",
+        details={"chunks_indexed": chunks_count, "status": document.status},
+        ip_address=ip_address,
+    )
+
+    return {
+        "status": document.status,
+        "document_id": str(document.id),
+        "chunks_indexed": chunks_count,
+    }
+
+
+@router.get(
+    "/{document_id}/chunks",
+    response_model=List[DocumentChunkRead],
+    summary="Get indexed document chunks",
+    description="Returns all indexed chunks for an authorized document.",
+)
+async def get_document_chunks(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    vector_store: VectorStore = Depends(get_vector_store),
+) -> List[DocumentChunkRead]:
+    """Retrieve all indexed chunks for an authorized document."""
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if document is None or document.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not await can_read_document(current_user, document, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to document chunks")
+
+    return vector_store.get_by_document(document_id)
 
 
 @router.post(

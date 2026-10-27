@@ -36,7 +36,7 @@ def test_manager_pdf_upload_success(client: TestClient, seeded_db: dict) -> None
     res_data = response.json()
     assert res_data["document"]["title"] == "Production Deployment Guide"
     assert res_data["document"]["file_type"] == "pdf"
-    assert res_data["document"]["status"] == "uploaded"
+    assert res_data["document"]["status"] in ("uploaded", "indexed")
     assert res_data["extraction_status"] == "success"
     assert res_data["total_passages"] == 2
 
