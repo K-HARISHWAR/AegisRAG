@@ -173,9 +173,40 @@ This log tracks architectural decisions, completed phases, verification commands
     - Cross-department explicit `DocumentGrant` retrieval.
     - Stage 2 post-retrieval revalidation defense against vector store candidate leakage.
     - Audit event persistence.
-- **Verification Commands Run**:
-  - `pytest backend/tests -v --show-capture=no` -> 73 passed in 33.16s
 - **Next Step**: Phase 7 — Generation, Prompt Delimitation, and Citation Grounding.
+
+---
+
+## Phase 7: Generation, Prompt Delimitation, and Citation Grounding
+- **Date**: 2026-10-28
+- **Completed Deliverables**:
+  - `backend/app/schemas/generation.py`: Defined `ChatQueryRequest`, `Citation`, and `ChatQueryResponse` schemas with grounded citation models and abstention indicators.
+  - `backend/app/schemas/__init__.py`: Exported generation schemas.
+  - `backend/app/services/llm.py`:
+    - `LLMProvider` ABC.
+    - `GroqLLMProvider`: Async HTTP integration with Groq's high-speed completion API (`llama-3.3-70b-versatile`).
+    - `OpenAILLMProvider`: OpenAI-compatible chat completion provider.
+    - `MockLLMProvider`: Deterministic, offline, citation-aware mock provider for isolated testing.
+    - `get_llm_provider`: Dynamic factory falling back to mock provider in test or unconfigured environments.
+  - `backend/app/services/generation.py`:
+    - `sanitize_delimiters`: Neutralizes XML and delimiter escape injection attacks (`</context>`, `<document>`) inside untrusted chunk texts.
+    - `build_grounded_prompt`: Wraps retrieved context in strict `<context>` boundaries with system guardrails enforcing factual grounding, strict abstention on insufficient evidence, and instruction-override resistance.
+    - `extract_grounded_citations`: Extracts and links citations directly to verified PostgreSQL document IDs, locations, and content hashes.
+    - `generate_answer`: Full RAG generation orchestrator integrating two-stage retrieval, delimited prompt generation, and structured audit logging (`action="rag_generation"`).
+  - `backend/app/api/routes/chat.py`: Implemented `POST /api/v1/chat/query` endpoint with full authentication and validation.
+  - `backend/app/main.py`: Registered chat router.
+  - `backend/tests/test_generation.py`: 7 comprehensive tests:
+    - Grounded generation with exact citation markers (`[Doc: ..., Page 1]`).
+    - Strict abstention guarantee (`"The available documentation does not contain sufficient information to answer this question."`) on unanswerable questions.
+    - Cross-department RBAC query isolation resulting in abstention.
+    - Confidential document isolation (abstention for regular employee, grounded answer for manager).
+    - Indirect prompt injection defense neutralizing embedded system overrides.
+    - Delimiter escape sanitization.
+    - Audit event persistence.
+- **Verification Commands Run**:
+  - `pytest backend/tests -v --show-capture=no` -> 80 passed in 54.77s
+- **Next Step**: Phase 8 — Evaluation harness, benchmarks, and quality metrics.
+
 
 
 

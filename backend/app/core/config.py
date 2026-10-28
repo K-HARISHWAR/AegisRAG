@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 384
 
     # LLM Provider
-    LLM_PROVIDER: Literal["groq", "openai"] = "groq"
+    LLM_PROVIDER: Literal["groq", "openai", "mock"] = "groq"
     GROQ_API_KEY: str | None = None
     LLM_MODEL: str = "llama-3.3-70b-versatile"
     LLM_TEMPERATURE: float = 0.0
