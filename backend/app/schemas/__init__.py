@@ -12,6 +12,8 @@ from app.schemas.document import (
     DocumentUploadResponse,
 )
 from app.schemas.audit import AuditEventRead
+from app.schemas.chunk import Chunk, DocumentChunkRead, SearchResult
+from app.schemas.retrieval import RetrievalQuery, RetrievalResponse, RetrievedChunk
 
 __all__ = [
     "LoginRequest",
@@ -29,4 +31,10 @@ __all__ = [
     "DocumentContentResponse",
     "DocumentUploadResponse",
     "AuditEventRead",
+    "Chunk",
+    "SearchResult",
+    "DocumentChunkRead",
+    "RetrievalQuery",
+    "RetrievedChunk",
+    "RetrievalResponse",
 ]

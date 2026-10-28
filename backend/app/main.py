@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import admin, auth, documents, health
+from app.api.routes import admin, auth, documents, health, retrieval
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import get_logger, request_id_ctx_var, setup_logging
@@ -75,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router, prefix=settings.API_V1_STR)
     app.include_router(documents.router, prefix=settings.API_V1_STR)
+    app.include_router(retrieval.router, prefix=settings.API_V1_STR)
     app.include_router(admin.router, prefix=settings.API_V1_STR)
 
     @app.get("/", tags=["Root"])

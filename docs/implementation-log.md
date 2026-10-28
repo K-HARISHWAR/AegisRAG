@@ -146,8 +146,36 @@ This log tracks architectural decisions, completed phases, verification commands
     - `backend/tests/test_chunking.py`: Boundary verification, provenance retention, and SHA-256 stability.
     - `backend/tests/test_vector_store.py`: ChromaDB CRUD, pre-retrieval filtering, fail-closed enforcement, and dimension mismatch rejection.
     - `backend/tests/test_indexing.py`: End-to-end upload -> auto-indexing -> chunk inspection -> RBAC access control -> deletion vector cleanup.
-- **Verification Commands Run**:
-  - `pytest backend/tests -v --show-capture=no` -> 65 passed in 37.81s
 - **Next Step**: Phase 6 — Hybrid retrieval, re-ranking, and server-side RBAC post-filtering.
+
+---
+
+## Phase 6: Hybrid Retrieval, Re-ranking, and Server-Side RBAC Post-Filtering
+- **Date**: 2026-10-28
+- **Completed Deliverables**:
+  - `backend/app/schemas/retrieval.py`: Defined `RetrievalQuery`, `RetrievedChunk`, and `RetrievalResponse` with granular source citations (`document_title`, `location`, `content_hash`, `dense_score`, `sparse_score`, `combined_score`).
+  - `backend/app/schemas/__init__.py`: Exported retrieval models for unified package consumption.
+  - `backend/app/services/retrieval.py`:
+    - `BM25Scorer`: Tokenization and Okapi BM25 sparse keyword scoring with Robertson-Spärck Jones IDF over candidate passage texts.
+    - `reciprocal_rank_fusion`: Normalized dense + sparse ranking fusion with standard $k_{rrf}=60$ parameter and configurable weighting.
+    - `retrieve_context`: Full two-stage authorization retrieval orchestrator:
+      - **Stage 1 (Pre-Retrieval Filter)**: Computes user-authorized document IDs from PostgreSQL; applies strict `where={"document_id": {"$in": ...}}` ChromaDB filter. **Fails closed** immediately if authorized set is empty.
+      - **Stage 2 (Post-Retrieval Revalidation)**: Revalidates every candidate chunk against active PostgreSQL records (`can_read_document`), dropping any stale or mismatched candidates and verifying that document status is not `"deleted"`.
+      - Attaches official document title from PostgreSQL records to prevent citation spoofing.
+      - Persists audit events (`action="retrieval_query"` and `"post_retrieval_revalidation"`) with execution latency and outcome.
+  - `backend/app/api/routes/retrieval.py`: Implemented `POST /api/v1/retrieval/query` endpoint with full request validation and authentication.
+  - `backend/app/main.py`: Registered retrieval router in FastAPI application.
+  - `backend/tests/test_retrieval.py`: 8 comprehensive integration and security tests:
+    - BM25 unit scoring and RRF normalization verification.
+    - Employee intra-department non-confidential retrieval.
+    - Cross-department pre-retrieval isolation (Stage 1 pre-filter).
+    - Confidential document isolation (hidden from regular employees, accessible to department manager).
+    - Cross-department explicit `DocumentGrant` retrieval.
+    - Stage 2 post-retrieval revalidation defense against vector store candidate leakage.
+    - Audit event persistence.
+- **Verification Commands Run**:
+  - `pytest backend/tests -v --show-capture=no` -> 73 passed in 33.16s
+- **Next Step**: Phase 7 — Generation, Prompt Delimitation, and Citation Grounding.
+
 
 
