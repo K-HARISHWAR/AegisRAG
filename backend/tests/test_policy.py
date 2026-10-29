@@ -141,9 +141,9 @@ async def test_get_authorized_document_ids(seeded_db: dict, db_session: AsyncSes
     assert doc_secrets.id in charlie_ids
     assert doc_comp.id not in charlie_ids
 
-    # Admin should see all 4 documents
+    # Admin should see all seeded documents
     admin_ids = set(await get_authorized_document_ids(admin, db_session))
-    assert len(admin_ids) == 4
+    assert len(admin_ids) == len(seeded_db["documents"])
 
     # Inactive user sees none
     inactive_ids = await get_authorized_document_ids(inactive, db_session)

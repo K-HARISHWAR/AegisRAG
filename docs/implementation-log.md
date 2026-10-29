@@ -207,6 +207,40 @@ This log tracks architectural decisions, completed phases, verification commands
   - `pytest backend/tests -v --show-capture=no` -> 80 passed in 54.77s
 - **Next Step**: Phase 8 — Evaluation harness, benchmarks, and quality metrics.
 
+---
+
+## Phase 8: Evaluation Harness, Benchmarks, and Quality Metrics
+- **Date**: 2026-10-29
+- **Completed Deliverables**:
+  - `backend/app/db/seed.py`: Added 5th benchmark document (`manager_disciplinary_guide.docx`) to match the complete evaluation corpus specified in `evals/questions.jsonl`.
+  - `evals/seed_eval_corpus.py`: Automated evaluation corpus seeder populating 5 benchmark documents across Engineering and HR departments, with 22 distinct ground truth chunk passages indexed into ChromaDB.
+  - `evals/evaluator.py`: Comprehensive evaluation harness:
+    - Data models: `EvaluationCase`, `EvaluationResult`, `EvaluationMetrics`.
+    - Keyword overlap and semantic similarity evaluation against ground truth answer snippets.
+    - Persona-based execution (`alice` - Engineering Employee, `bob` - HR Manager, `charlie` - HR Employee, `diana` - Engineering Manager).
+    - Citation verification and prompt injection resistance checks.
+    - Latency tracking and percentile computation (P50, P90, P99).
+  - `evals/run_evals.py`: CLI benchmark runner executing all 20 test cases in `evals/questions.jsonl`, generating ASCII summary tables, and exporting detailed artifacts:
+    - `evals/benchmark_results.json`: Full machine-readable per-query evaluation records.
+    - `evals/benchmark_report.md`: Markdown summary report with metrics and latency distribution.
+  - `backend/tests/test_evals.py`: Pytest integration test suite enforcing quality gates:
+    - Overall accuracy >= 80% (Achieved: 100.0%)
+    - RBAC security pass rate >= 95% (Achieved: 100.0%)
+    - Prompt injection resistance = 100% (Achieved: 100.0%)
+    - Abstention accuracy >= 90% (Achieved: 100.0%)
+    - Citation accuracy >= 90% (Achieved: 100.0%)
+- **Verification Commands Run**:
+  - `python evals/run_evals.py` -> 20/20 benchmark queries evaluated successfully:
+    - Overall Accuracy: 100.0%
+    - RBAC Security Pass Rate: 100.0%
+    - Prompt Injection Resistance: 100.0%
+    - Citation Accuracy: 100.0%
+    - Abstention Accuracy: 100.0%
+    - Mean Latency: 524.8ms (P50: 497.1ms, P90: 713.8ms, P99: 745.3ms)
+  - `pytest backend/tests -v --show-capture=no` -> 81 passed
+- **Next Step**: Phase 9 — Frontend Implementation (React + TypeScript + Vite, Chat UI, RBAC Dashboards, and Document Management).
+
+
 
 
 

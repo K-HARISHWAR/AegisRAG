@@ -155,7 +155,19 @@ async def seed_database(db: AsyncSession) -> dict[str, Any]:
         is_confidential=True,
         status="indexed",
     )
-    db.add_all([doc_runbook, doc_secrets, doc_leave, doc_compensation])
+    doc_disciplinary = Document(
+        id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+        title="manager_disciplinary_guide.docx",
+        owner_id=user_diana.id,
+        department_id=dept_hr.id,
+        storage_key="doc_disc_hr",
+        file_type="docx",
+        file_size_bytes=393216,
+        checksum_sha256="9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+        is_confidential=True,
+        status="indexed",
+    )
+    db.add_all([doc_runbook, doc_secrets, doc_leave, doc_compensation, doc_disciplinary])
     await db.flush()
 
     # 5. Document Grants: Grant Alice explicit read access to HR's leave_policy.pdf
@@ -173,7 +185,7 @@ async def seed_database(db: AsyncSession) -> dict[str, Any]:
         "departments": [dept_eng, dept_hr],
         "roles": [role_emp, role_mgr, role_admin],
         "users": [user_alice, user_bob, user_charlie, user_diana, user_admin, user_inactive],
-        "documents": [doc_runbook, doc_secrets, doc_leave, doc_compensation],
+        "documents": [doc_runbook, doc_secrets, doc_leave, doc_compensation, doc_disciplinary],
         "grants": [grant_alice_leave],
     }
 

@@ -1,7 +1,15 @@
 """Pytest fixtures for backend tests with isolated test database and seeded accounts."""
 
 import os
+import sys
+from pathlib import Path
+
 os.environ["ENVIRONMENT"] = "test"
+
+# Ensure project root is in sys.path so evals package is accessible
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
 
 import uuid
 from typing import AsyncGenerator
@@ -50,12 +58,15 @@ def test_settings() -> Settings:
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_db():
     """Create all database tables fresh before each test and tear down after."""
+    from app.services.vector_store import get_vector_store
+    get_vector_store().reset()
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    get_vector_store().reset()
 
 
 @pytest_asyncio.fixture

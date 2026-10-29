@@ -126,32 +126,45 @@ class MockLLMProvider(LLMProvider):
         if not doc_matches:
             return ABSTENTION_MESSAGE
 
-        # Extract question keywords (ignore common stop words)
-        stopwords = {"what", "is", "the", "a", "an", "and", "or", "how", "to", "in", "of", "for", "with", "on", "at", "by"}
+        # Extract question keywords (ignore common stop words and generic query terms)
+        stopwords = {
+            "what", "is", "are", "the", "a", "an", "and", "or", "how", "to", "in", "of", "for", "with",
+            "on", "at", "by", "can", "does", "do", "see", "print", "dump", "regarding", "about", "who",
+            "all", "our", "their", "employee", "company", "corporate", "document", "file", "policy", "procedure"
+        }
         q_tokens = [w for w in re.findall(r"\b\w+\b", question_text.lower()) if w not in stopwords and len(w) > 2]
 
-        matched_sentences: List[tuple[str, str, str]] = []  # (title, location, sentence)
+        if not q_tokens:
+            return ABSTENTION_MESSAGE
+
+        matched_sentences: List[tuple[int, float, str, str, str]] = []  # (overlap_count, ratio, title, location, sentence)
 
         for title, location, text in doc_matches:
-            # Check for indirect injection attempts in document text:
-            # If the chunk attempts to order instruction ignores, do NOT follow it
             clean_text = text.strip()
             sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", clean_text) if s.strip()]
             for s in sentences:
                 s_lower = s.lower()
-                # Check if sentence shares keyword tokens with the user question
-                if any(t in s_lower for t in q_tokens):
-                    # Filter out sentences that look like injected instructions
-                    if "ignore previous" in s_lower or "ignore all instructions" in s_lower or "system prompt" in s_lower:
-                        continue
-                    matched_sentences.append((title, location, s))
+                # Filter out sentences that look like injected instructions
+                if "ignore previous" in s_lower or "ignore all instructions" in s_lower or "system prompt" in s_lower or "system override" in s_lower:
+                    continue
+
+                s_tokens = set(re.findall(r"\b\w+\b", s_lower))
+                overlap = set(q_tokens).intersection(s_tokens)
+                overlap_count = len(overlap)
+                overlap_ratio = overlap_count / len(q_tokens)
+
+                # Require meaningful factual overlap (at least 2 key terms or >= 40% of question keywords)
+                if overlap_count >= 2 or (overlap_count >= 1 and overlap_ratio >= 0.4):
+                    matched_sentences.append((overlap_count, overlap_ratio, title, location, s))
 
         if not matched_sentences:
             return ABSTENTION_MESSAGE
 
-        # Synthesize grounded answer with exact citation
-        title, location, sent = matched_sentences[0]
-        answer = f"Based on internal documentation: {sent}. [Doc: {title}, {location}]"
+        # Select sentence with highest keyword overlap
+        matched_sentences.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        _, _, title, location, best_sentence = matched_sentences[0]
+
+        answer = f"Based on internal documentation: {best_sentence}. [Doc: {title}, {location}]"
         return answer
 
 
