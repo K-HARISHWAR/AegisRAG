@@ -340,6 +340,7 @@ async def get_document_content(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     storage: StorageProvider = Depends(get_storage_provider),
+    vector_store: VectorStore = Depends(get_vector_store),
 ) -> DocumentContentResponse:
     """Retrieve extracted passages with exact citation locations for authorized user."""
     stmt = select(Document).where(Document.id == document_id)
@@ -354,20 +355,31 @@ async def get_document_content(
 
     try:
         file_bytes = await storage.read_file(document.storage_key)
+        extraction = extract_document_text(document.file_type, file_bytes)
+        passages = [
+            DocumentPassageRead(location=p.location, text=p.text, passage_index=p.passage_index)
+            for p in extraction.passages
+        ]
+        total_passages = len(extraction.passages)
+        total_characters = extraction.total_characters
     except FileNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document binary not found in storage")
-
-    extraction = extract_document_text(document.file_type, file_bytes)
+        # Fall back to indexed vector store chunks for pre-seeded or external documents
+        chunks = vector_store.get_by_document(document.id)
+        if not chunks:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document binary not found in storage")
+        passages = [
+            DocumentPassageRead(location=c.location, text=c.text, passage_index=c.chunk_index)
+            for c in chunks
+        ]
+        total_passages = len(passages)
+        total_characters = sum(len(c.text) for c in chunks)
 
     return DocumentContentResponse(
         document_id=document.id,
         title=document.title,
-        passages=[
-            DocumentPassageRead(location=p.location, text=p.text, passage_index=p.passage_index)
-            for p in extraction.passages
-        ],
-        total_passages=len(extraction.passages),
-        total_characters=extraction.total_characters,
+        passages=passages,
+        total_passages=total_passages,
+        total_characters=total_characters,
     )
 
 

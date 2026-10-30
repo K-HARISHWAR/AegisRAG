@@ -145,6 +145,35 @@ async def generate_answer(
     if llm_provider is None:
         llm_provider = get_llm_provider()
 
+    # Conversational greeting handler
+    greeting_tokens = {"hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "howdy"}
+    clean_query = request.query.strip().lower().rstrip("!?.")
+    if clean_query in greeting_tokens:
+        dept_name = current_user.department.name if current_user.department else "your department"
+        greeting_text = (
+            f"Hello! I am AegisRAG, your enterprise document assistant. "
+            f"I provide answers grounded directly in {dept_name} policies, procedures, and runbooks. "
+            f"What question can I help you with today?"
+        )
+        elapsed = (time.perf_counter() - start_time) * 1000
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="rag_generation",
+            outcome="allow",
+            resource_type="chat",
+            details={"type": "greeting", "query": request.query[:80]},
+            ip_address=ip_address,
+        )
+        return ChatQueryResponse(
+            query=request.query,
+            answer=greeting_text,
+            citations=[],
+            retrieved_chunks=[],
+            abstained=False,
+            execution_time_ms=round(elapsed, 2),
+        )
+
     # 1. Retrieve authorized, server-verified context chunks
     retrieval_query = RetrievalQuery(
         query=request.query,
