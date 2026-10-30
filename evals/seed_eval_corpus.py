@@ -152,3 +152,25 @@ async def seed_eval_corpus(
         indexed_count += added
 
     return indexed_count
+
+
+async def main() -> None:
+    import asyncio
+    from app.db.session import AsyncSessionLocal, engine
+    from app.models.base import Base
+
+    print("[INFO] Initializing AegisRAG database tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+    print("[INFO] Seeding benchmark documents and ChromaDB vector store...")
+    async with AsyncSessionLocal() as session:
+        count = await seed_eval_corpus(session)
+        print(f"[SUCCESS] Indexed {count} passages across 5 enterprise documents.")
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+

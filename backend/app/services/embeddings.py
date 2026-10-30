@@ -68,7 +68,7 @@ class ChromaDefaultEmbeddingProvider(EmbeddingProvider):
         vectors = self._ef(texts)
         result: List[List[float]] = []
         for v in vectors:
-            v_list = list(v)
+            v_list = [float(x) for x in v]
             self.validate_dimension(v_list)
             result.append(v_list)
         return result

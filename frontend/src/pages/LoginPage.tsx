@@ -17,7 +17,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     {
       name: 'Alice Smith',
       email: 'alice@example.com',
-      password: 'password123',
+      password: 'TestPass123!',
       dept: 'Engineering',
       role: 'Employee',
       color: 'border-blue-200 hover:border-blue-400 bg-blue-50/50',
@@ -26,7 +26,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     {
       name: 'Charlie Brown',
       email: 'charlie@example.com',
-      password: 'password123',
+      password: 'TestPass123!',
       dept: 'Engineering',
       role: 'Manager',
       color: 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/50',
@@ -35,7 +35,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     {
       name: 'Diana Prince',
       email: 'diana@example.com',
-      password: 'password123',
+      password: 'TestPass123!',
       dept: 'HR',
       role: 'Manager',
       color: 'border-purple-200 hover:border-purple-400 bg-purple-50/50',
@@ -44,7 +44,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     {
       name: 'Bob Jones',
       email: 'bob@example.com',
-      password: 'password123',
+      password: 'TestPass123!',
       dept: 'HR',
       role: 'Employee',
       color: 'border-indigo-200 hover:border-indigo-400 bg-indigo-50/50',
@@ -53,7 +53,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     {
       name: 'System Admin',
       email: 'admin@example.com',
-      password: 'password123',
+      password: 'TestPass123!',
       dept: 'Global',
       role: 'Admin',
       color: 'border-red-200 hover:border-red-400 bg-red-50/50',
