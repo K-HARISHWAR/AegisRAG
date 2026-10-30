@@ -132,7 +132,16 @@ class MockLLMProvider(LLMProvider):
             "on", "at", "by", "can", "does", "do", "see", "print", "dump", "regarding", "about", "who",
             "all", "our", "their", "employee", "company", "corporate", "document", "file", "policy", "procedure"
         }
+
+        def _stem(word: str) -> str:
+            w = word.lower()
+            for suffix in ("ment", "ing", "ed", "es", "s"):
+                if w.endswith(suffix) and len(w) > len(suffix) + 2:
+                    return w[:-len(suffix)]
+            return w
+
         q_tokens = [w for w in re.findall(r"\b\w+\b", question_text.lower()) if w not in stopwords and len(w) > 2]
+        q_stem_tokens = [_stem(w) for w in q_tokens]
 
         if not q_tokens:
             return ABSTENTION_MESSAGE
@@ -148,9 +157,12 @@ class MockLLMProvider(LLMProvider):
                 if "ignore previous" in s_lower or "ignore all instructions" in s_lower or "system prompt" in s_lower or "system override" in s_lower:
                     continue
 
-                s_tokens = set(re.findall(r"\b\w+\b", s_lower))
-                overlap = set(q_tokens).intersection(s_tokens)
-                overlap_count = len(overlap)
+                s_raw_tokens = set(re.findall(r"\b\w+\b", s_lower))
+                s_stem_tokens = {_stem(w) for w in s_raw_tokens}
+
+                exact_overlap = set(q_tokens).intersection(s_raw_tokens)
+                stem_overlap = set(q_stem_tokens).intersection(s_stem_tokens)
+                overlap_count = max(len(exact_overlap), len(stem_overlap))
                 overlap_ratio = overlap_count / len(q_tokens)
 
                 # Require meaningful factual overlap (at least 2 key terms or >= 40% of question keywords)

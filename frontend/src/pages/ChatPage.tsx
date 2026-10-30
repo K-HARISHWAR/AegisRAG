@@ -30,28 +30,28 @@ export const ChatPage: React.FC = () => {
   // Persona-tailored starter prompts
   const starterPrompts = [
     {
-      title: 'Server Deployment',
-      query: 'What is the server deployment checklist and what steps are required before release?',
+      title: 'Deployment Procedure',
+      query: 'What is the primary deployment procedure for production services?',
       dept: 'Engineering',
     },
     {
-      title: 'BGP Routing',
-      query: 'What is the BGP routing and autonomous system configuration policy?',
+      title: 'API Key Rotation',
+      query: 'How do engineers rotate service account API keys?',
       dept: 'Engineering',
     },
     {
       title: 'Disciplinary Protocol',
-      query: 'What are the formal steps in the manager disciplinary guide for escalating employee conduct?',
+      query: 'What are the performance improvement plan (PIP) escalation timelines?',
       dept: 'HR',
     },
     {
       title: 'Leave Policy',
-      query: 'How many days of annual paid leave are allotted according to the leave policy?',
+      query: 'What is the annual paid time off (PTO) policy for full-time employees?',
       dept: 'HR',
     },
     {
       title: 'Executive Compensation',
-      query: 'What are the executive base salaries and bonus formula percentages?',
+      query: 'What is the executive bonus distribution formula and compensation scale?',
       dept: 'HR (Confidential)',
     },
   ];
