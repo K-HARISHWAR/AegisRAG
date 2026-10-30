@@ -17,7 +17,10 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aegisrag}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
+    networks:
+      - aegisrag-net
 
   backend:
     build:
@@ -29,17 +32,56 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
-      ENVIRONMENT: development
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-aegisrag}
       LOCAL_STORAGE_DIR: /app/data/uploads
       CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-minimum-32-characters-for-local-testing-only!}
+      SEED_ON_STARTUP: ${SEED_ON_STARTUP:-true}
+      CORS_ORIGINS: '["http://localhost", "http://localhost:80", "http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]'
     volumes:
       - app_uploads:/app/data/uploads
       - app_chroma:/app/data/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - aegisrag-net
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.frontend
+    container_name: aegisrag-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - aegisrag-net
 
 volumes:
   postgres_data:
+    name: aegisrag_postgres_data
   app_uploads:
+    name: aegisrag_app_uploads
   app_chroma:
+    name: aegisrag_app_chroma
+
+networks:
+  aegisrag-net:
+    name: aegisrag-network
+    driver: bridge

@@ -271,6 +271,59 @@ This log tracks architectural decisions, completed phases, verification commands
   - `pytest backend/tests -v --show-capture=no` -> 81/81 backend tests passed in 68.16s.
 - **Next Step**: Phase 10 — Docker Containerization & Cloud Deployment (Dockerfiles, Docker Compose, AWS infrastructure templates).
 
+---
+
+## Phase 10: Docker Containerization & Cloud Deployment
+- **Date**: 2026-10-30
+- **Completed Deliverables**:
+  - `infra/docker/Dockerfile.backend`:
+    - Multi-stage build targeting `python:3.12-slim-bookworm`.
+    - Builder stage compiling Python wheel dependencies cleanly.
+    - Hardened runtime stage creating non-root system user `appuser` (UID 10001) for least-privilege execution.
+    - Integrated Docker healthcheck probing `/health/live`.
+  - `infra/docker/Dockerfile.frontend`:
+    - Multi-stage build targeting `node:22-alpine` for Vite production bundling and `nginx:1.27-alpine` for production serving.
+    - High-performance, unprivileged Nginx web server with gzip compression and static asset caching.
+    - Integrated healthcheck probing `/`.
+  - `infra/docker/nginx.conf`:
+    - Reverse proxy routing `/api/` and `/health/` directly to backend container (`http://backend:8000`).
+    - Single-Page Application (SPA) client routing fallback (`try_files $uri $uri/ /index.html;`).
+    - Strict HTTP security headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, and Content Security Policy (CSP).
+  - `backend/entrypoint.sh`:
+    - POSIX LF shell script automating database readiness checking via Python socket probe.
+    - Automates database schema migrations (`alembic upgrade head`).
+    - Supports optional automated corpus seeding (`SEED_ON_STARTUP=true`).
+    - Launches production Uvicorn ASGI server with configurable host, port, and workers.
+  - `infra/docker/docker-compose.yml`:
+    - Orchestrates 3 interconnected containers: `postgres` (PostgreSQL 16 Alpine with healthcheck), `backend` (FastAPI modular monolith), and `frontend` (Nginx + React SPA).
+    - Persistent named volumes for database state (`postgres_data`), uploaded documents (`app_uploads`), and ChromaDB embeddings (`app_chroma`).
+    - Isolated internal bridge network (`aegisrag-network`).
+  - `.dockerignore` and `frontend/.dockerignore`:
+    - Excludes virtual environments, Node modules, build artifacts, `.env` files, local SQLite databases, and test caches from container contexts.
+  - `backend/alembic.ini`:
+    - Configured `script_location = %(here)s/alembic` ensuring portable migration execution from both repo root and `/app` container directories.
+  - `infra/aws/cloudformation.yaml`:
+    - Production-grade AWS CloudFormation template (38 AWS resources):
+      - Amazon VPC with public and private subnets across 2 Availability Zones, Internet Gateway, and NAT Gateway.
+      - Least-privilege Security Groups with strict ingress boundaries (`ALB -> ECS -> RDS`).
+      - Amazon RDS PostgreSQL 16 instance in private DB subnet group with automated backup and KMS storage encryption.
+      - Amazon S3 Document Bucket with Server-Side Encryption (`AES256`/KMS), Public Access Block, and versioning.
+      - Application Load Balancer (ALB) with path-based routing rules (`/api/*` and `/health/*` -> backend, `/*` -> frontend).
+      - Amazon ECS Fargate Cluster with Backend and Frontend Task Definitions and Services.
+      - IAM Execution and Task roles adhering strictly to least privilege.
+      - AWS CloudWatch Log Groups with 30-day retention.
+  - `infra/aws/README.md`:
+    - Architecture diagrams and trust boundary breakdown.
+    - AWS CLI container build, ECR push, and CloudFormation deployment commands.
+    - One-off task execution for database seeding and CloudWatch monitoring commands.
+- **Verification Commands Run**:
+  - `python -c "..."` -> Validated `docker-compose.yml` and `infra/aws/cloudformation.yaml` syntax and parsed all 38 resources.
+  - `pytest backend/tests -v --show-capture=no` -> 81/81 backend tests passed in 67.00s.
+  - `npm test` in `frontend/` -> 8/8 frontend tests passed across 3 suites in 27.35s.
+  - `npm run build` in `frontend/` -> Production bundle built cleanly (`dist/index.html`, `dist/assets/index-*.css`, `dist/assets/index-*.js`).
+- **Project Completion**: All 10 phases of AegisRAG have been implemented, tested, and documented.
+
+
 
 
 
