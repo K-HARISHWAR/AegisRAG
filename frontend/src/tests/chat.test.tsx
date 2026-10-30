@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import React from 'react';
 import { ChatPage } from '../pages/ChatPage';
 import { AuthProvider } from '../auth/AuthContext';
 import { api } from '../api/client';
@@ -105,3 +104,4 @@ describe('ChatPage Component', () => {
     });
   });
 });
+

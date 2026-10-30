@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import React from 'react';
+import { render, screen } from '@testing-library/react';
 import { CitationDrawer } from '../components/CitationDrawer';
-import { Navbar } from '../components/Navbar';
 import { AdminPage } from '../pages/AdminPage';
 import { AuthProvider } from '../auth/AuthContext';
 
@@ -75,3 +73,4 @@ describe('AdminPage RBAC Guard', () => {
     ).toBeInTheDocument();
   });
 });
+

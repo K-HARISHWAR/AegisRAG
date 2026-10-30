@@ -128,3 +128,4 @@ describe('AuthContext and RBAC State', () => {
     expect(localStorage.getItem('aegis_token')).toBeNull();
   });
 });
+
