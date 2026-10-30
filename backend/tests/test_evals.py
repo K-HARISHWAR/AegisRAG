@@ -36,3 +36,4 @@ async def test_full_evaluation_benchmark_suite(db_session: AsyncSession) -> None
     assert metrics.citation_accuracy >= 0.95, f"Citation accuracy low: {metrics.citation_accuracy}"
     assert metrics.overall_accuracy >= 0.95, f"Overall accuracy low: {metrics.overall_accuracy}"
     assert metrics.passed_cases == 20, f"Cases failed: {[r.id for r in metrics.results if not r.passed]}"
+
