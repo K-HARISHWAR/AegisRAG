@@ -40,6 +40,11 @@ class VectorStore(ABC):
         pass
 
     @abstractmethod
+    def get_chunks_by_documents(self, allowed_document_ids: List[uuid.UUID]) -> List[SearchResult]:
+        """Fetch all indexed chunks belonging to a set of authorized document IDs."""
+        pass
+
+    @abstractmethod
     def delete_by_document(self, document_id: uuid.UUID) -> int:
         """Idempotently remove all indexed chunks for a given document ID."""
         pass
@@ -225,6 +230,43 @@ class ChromaVectorStore(VectorStore):
                 )
             )
         results.sort(key=lambda c: c.chunk_index)
+        return results
+
+    def get_chunks_by_documents(self, allowed_document_ids: List[uuid.UUID]) -> List[SearchResult]:
+        """Fetch all indexed chunks belonging to a set of authorized document IDs."""
+        if not allowed_document_ids:
+            return []
+
+        allowed_str_ids = [str(d) for d in allowed_document_ids]
+        if len(allowed_str_ids) == 1:
+            where_filter = {"document_id": allowed_str_ids[0]}
+        else:
+            where_filter = {"document_id": {"$in": allowed_str_ids}}
+
+        data = self._collection.get(where=where_filter, include=["documents", "metadatas"])
+        results: List[SearchResult] = []
+        if not data or not data.get("ids"):
+            return results
+
+        ids = data["ids"]
+        docs = data["documents"] if data.get("documents") else [""] * len(ids)
+        metas = data["metadatas"] if data.get("metadatas") else [{}] * len(ids)
+
+        for chunk_id, text, meta in zip(ids, docs, metas):
+            results.append(
+                SearchResult(
+                    chunk_id=chunk_id,
+                    document_id=uuid.UUID(meta["document_id"]),
+                    document_version=meta.get("document_version", 1),
+                    chunk_index=meta.get("chunk_index", 1),
+                    text=text,
+                    location=meta.get("location", "Unknown location"),
+                    department_id=uuid.UUID(meta["department_id"]),
+                    is_confidential=bool(meta.get("is_confidential", False)),
+                    similarity_score=0.0,
+                    metadata=meta,
+                )
+            )
         return results
 
     def delete_by_document(self, document_id: uuid.UUID) -> int:

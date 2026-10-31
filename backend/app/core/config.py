@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIRECTORY: str = "backend/data/chroma"
     CHROMA_COLLECTION_NAME: str = "aegis_rag_chunks"
 
+    # Hybrid Retrieval & Reranking (Phase 11 Feature Flags)
+    RETRIEVAL_MODE: Literal["vector", "hybrid"] = "hybrid"
+    ENABLE_RERANKER: bool = False
+    RERANKER_TYPE: Literal["mock", "cross_encoder", "flashrank"] = "mock"
+    RERANKER_TIMEOUT_SECONDS: float = 2.0
+    RRF_K: int = 60
+    HYBRID_DENSE_WEIGHT: float = 0.6
+    HYBRID_SPARSE_WEIGHT: float = 0.4
+
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

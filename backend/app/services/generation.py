@@ -179,6 +179,8 @@ async def generate_answer(
         query=request.query,
         top_k=request.top_k,
         hybrid=request.hybrid,
+        mode=request.mode if request.mode in ("vector", "hybrid") else None,
+        rerank=request.rerank,
     )
     retrieval_res = await retrieve_context(
         query_params=retrieval_query,
