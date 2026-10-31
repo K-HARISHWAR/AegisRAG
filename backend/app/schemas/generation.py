@@ -14,6 +14,8 @@ class ChatQueryRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20, description="Number of context passages to retrieve")
     hybrid: bool = Field(default=True, description="Enable hybrid dense + sparse retrieval")
     temperature: float = Field(default=0.0, ge=0.0, le=1.0, description="Sampling temperature for LLM")
+    mode: Optional[str] = Field(default=None, description="Retrieval mode override ('vector' or 'hybrid')")
+    rerank: Optional[bool] = Field(default=None, description="Flag to enable/disable reranker")
 
 
 class Citation(BaseModel):

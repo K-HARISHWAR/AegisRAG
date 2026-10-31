@@ -1,4 +1,4 @@
-"""Secure retrieval pipeline with two-stage authorization filtering, BM25 keyword search, and RRF."""
+"""Secure retrieval pipeline with two-stage authorization filtering, multi-channel hybrid search, RRF, and intelligent reranking."""
 
 import math
 import re
@@ -10,17 +10,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.document import Document
 from app.models.user import User
 from app.schemas.chunk import SearchResult
-from app.schemas.retrieval import RetrievalQuery, RetrievalResponse, RetrievedChunk
+from app.schemas.retrieval import RetrievalDiagnostics, RetrievalQuery, RetrievalResponse, RetrievedChunk
 from app.services.audit import log_audit_event
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from app.services.policy import can_read_document, get_authorized_document_ids
+from app.services.reranker import get_reranker
 from app.services.vector_store import VectorStore, get_vector_store
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 
 def tokenize(text: str) -> List[str]:
@@ -127,10 +130,10 @@ async def retrieve_context(
     embedding_provider: Optional[EmbeddingProvider] = None,
     ip_address: Optional[str] = None,
 ) -> RetrievalResponse:
-    """Execute two-stage authorized hybrid retrieval.
-    
-    Stage 1: Pre-retrieval vector search filtering with trusted PostgreSQL document IDs.
-    Stage 2: Post-retrieval revalidation verifying permissions and metadata against PostgreSQL.
+    """Execute two-stage authorized hybrid retrieval with multi-channel candidate generation, RRF, and reranking.
+
+    Stage 1: Pre-retrieval filtering with PostgreSQL-authorized document IDs on both dense and sparse channels.
+    Stage 2: Post-retrieval revalidation verifying permissions and metadata against PostgreSQL records before reranking.
     """
     start_time = time.perf_counter()
 
@@ -138,6 +141,15 @@ async def retrieve_context(
         vector_store = get_vector_store()
     if embedding_provider is None:
         embedding_provider = get_embedding_provider()
+
+    # Determine active retrieval mode: request override takes precedence, then server config
+    retrieval_mode = query_params.mode or settings.RETRIEVAL_MODE
+    # Backwards compatibility: if query_params.hybrid is explicitly False and mode not specified, use vector
+    if query_params.mode is None and not query_params.hybrid:
+        retrieval_mode = "vector"
+
+    # Determine whether to execute reranker
+    should_rerank = query_params.rerank if query_params.rerank is not None else settings.ENABLE_RERANKER
 
     # -------------------------------------------------------------------------
     # STAGE 1 (Pre-Retrieval Filter): Derive authorized documents from PostgreSQL
@@ -156,28 +168,79 @@ async def retrieve_context(
             details={"reason": "no_authorized_documents", "query": query_params.query[:80]},
             ip_address=ip_address,
         )
+        diagnostics = RetrievalDiagnostics(
+            mode=retrieval_mode,
+            channels_used=["dense"] if retrieval_mode == "vector" else ["dense", "sparse"],
+            dense_candidates_count=0,
+            sparse_candidates_count=0,
+            fused_candidates_count=0,
+            post_validation_count=0,
+            reranked=False,
+            reranker_latency_ms=None,
+            authorized_documents_count=0,
+        )
         return RetrievalResponse(
             query=query_params.query,
             chunks=[],
             total_candidates_found=0,
             authorized_documents_count=0,
             execution_time_ms=round(elapsed, 2),
+            diagnostics=diagnostics,
         )
 
-    # Generate query embedding
-    query_vector = embedding_provider.embed_query(query_params.query)
-
-    # Candidate pool size: retrieve a wider set of candidates for hybrid re-ranking
+    # Candidate pool size: retrieve wider candidate set for multi-channel fusion
     candidate_limit = max(query_params.top_k * 3, 15)
 
-    # Dense vector search pre-filtered strictly by allowed_document_ids
+    # -------------------------------------------------------------------------
+    # CHANNEL 1: Dense Vector Retrieval (Pre-filtered by allowed_document_ids)
+    # -------------------------------------------------------------------------
+    query_vector = embedding_provider.embed_query(query_params.query)
     dense_candidates: List[SearchResult] = vector_store.search(
         query_embedding=query_vector,
         top_k=candidate_limit,
         allowed_document_ids=allowed_doc_ids,
     )
 
-    if not dense_candidates:
+    dense_map: Dict[str, Tuple[int, SearchResult]] = {}
+    for rank, cand in enumerate(dense_candidates, start=1):
+        dense_map[cand.chunk_id] = (rank, cand)
+
+    # -------------------------------------------------------------------------
+    # CHANNEL 2: Sparse Lexical Retrieval (BM25 over authorized document corpus)
+    # -------------------------------------------------------------------------
+    sparse_candidates: List[SearchResult] = []
+    sparse_map: Dict[str, Tuple[int, SearchResult, float]] = {}
+
+    if retrieval_mode == "hybrid":
+        all_authorized_chunks = vector_store.get_chunks_by_documents(allowed_doc_ids)
+        if all_authorized_chunks:
+            chunk_texts = [c.text for c in all_authorized_chunks]
+            bm25 = BM25Scorer(chunk_texts)
+            scores = bm25.score(query_params.query)
+
+            # Collect chunks with non-zero keyword score
+            scored_sparse = [
+                (scores[i], chunk)
+                for i, chunk in enumerate(all_authorized_chunks)
+                if scores[i] > 0.0
+            ]
+            # Sort descending by BM25 score
+            scored_sparse.sort(key=lambda x: x[0], reverse=True)
+            top_sparse = scored_sparse[:candidate_limit]
+
+            for rank, (score, cand) in enumerate(top_sparse, start=1):
+                sparse_candidates.append(cand)
+                sparse_map[cand.chunk_id] = (rank, cand, score)
+
+    # -------------------------------------------------------------------------
+    # MULTI-CHANNEL FUSION & DEDUPLICATION (Reciprocal Rank Fusion)
+    # -------------------------------------------------------------------------
+    channels_used = ["dense"]
+    if retrieval_mode == "hybrid":
+        channels_used.append("sparse")
+
+    all_candidate_ids = set(dense_map.keys()) | set(sparse_map.keys())
+    if not all_candidate_ids:
         elapsed = (time.perf_counter() - start_time) * 1000
         await log_audit_event(
             db=db,
@@ -188,18 +251,98 @@ async def retrieve_context(
             details={"candidates_found": 0, "returned": 0, "query": query_params.query[:80]},
             ip_address=ip_address,
         )
+        diagnostics = RetrievalDiagnostics(
+            mode=retrieval_mode,
+            channels_used=channels_used,
+            dense_candidates_count=len(dense_candidates),
+            sparse_candidates_count=len(sparse_candidates),
+            fused_candidates_count=0,
+            post_validation_count=0,
+            reranked=False,
+            reranker_latency_ms=None,
+            authorized_documents_count=len(allowed_doc_ids),
+        )
         return RetrievalResponse(
             query=query_params.query,
             chunks=[],
             total_candidates_found=0,
             authorized_documents_count=len(allowed_doc_ids),
             execution_time_ms=round(elapsed, 2),
+            diagnostics=diagnostics,
         )
 
+    # Calculate RRF scores and assemble candidate metadata
+    rrf_k = settings.RRF_K
+    dense_weight = settings.HYBRID_DENSE_WEIGHT
+    sparse_weight = settings.HYBRID_SPARSE_WEIGHT
+    penalty_rank = 1000  # Penalty rank for candidate not present in a channel
+
+    fused_pool: List[Tuple[float, SearchResult, str, Optional[int], Optional[int], float, float]] = []
+
+    for cid in all_candidate_ids:
+        in_dense = cid in dense_map
+        in_sparse = cid in sparse_map
+
+        cand_dense_info = dense_map.get(cid)
+        cand_sparse_info = sparse_map.get(cid)
+
+        # Retrieve base SearchResult
+        base_cand = cand_dense_info[1] if cand_dense_info else cand_sparse_info[1]
+
+        dense_rank = cand_dense_info[0] if cand_dense_info else None
+        sparse_rank = cand_sparse_info[0] if cand_sparse_info else None
+
+        dense_score = base_cand.similarity_score if in_dense else 0.0
+        sparse_score = cand_sparse_info[2] if cand_sparse_info else 0.0
+
+        if retrieval_mode == "vector":
+            channel_label = "dense"
+            combined_score = dense_score
+        else:
+            if in_dense and in_sparse:
+                channel_label = "both"
+            elif in_dense:
+                channel_label = "dense"
+            else:
+                channel_label = "sparse"
+
+            # Compute RRF score
+            effective_dense_rank = dense_rank if dense_rank is not None else penalty_rank
+            effective_sparse_rank = sparse_rank if sparse_rank is not None else penalty_rank
+
+            score_dense = dense_weight / (rrf_k + effective_dense_rank)
+            score_sparse = sparse_weight / (rrf_k + effective_sparse_rank)
+            combined_score = score_dense + score_sparse
+
+        fused_pool.append((
+            combined_score,
+            base_cand,
+            channel_label,
+            dense_rank,
+            sparse_rank,
+            dense_score,
+            sparse_score,
+        ))
+
+    # Normalize fused RRF scores to 0.0 - 1.0 range if in hybrid mode
+    if retrieval_mode == "hybrid" and fused_pool:
+        scores = [item[0] for item in fused_pool]
+        max_s = max(scores)
+        min_s = min(scores)
+        diff = max_s - min_s
+        normalized_fused_pool = []
+        for item in fused_pool:
+            norm_s = round((item[0] - min_s) / diff, 4) if diff > 0 else 1.0
+            normalized_fused_pool.append((norm_s, *item[1:]))
+        fused_pool = normalized_fused_pool
+
+    # Sort descending by combined score
+    fused_pool.sort(key=lambda x: x[0], reverse=True)
+
     # -------------------------------------------------------------------------
-    # STAGE 2 (Post-Retrieval Revalidation): Re-check against PostgreSQL
+    # STAGE 2 (Post-Retrieval Revalidation): Re-check against PostgreSQL records
     # -------------------------------------------------------------------------
-    candidate_doc_ids = list({c.document_id for c in dense_candidates})
+    candidate_doc_ids = list({item[1].document_id for item in fused_pool})
 
     stmt = (
         select(Document)
@@ -209,11 +352,12 @@ async def retrieve_context(
     result = await db.execute(stmt)
     active_docs_map: Dict[uuid.UUID, Document] = {d.id: d for d in result.scalars().all()}
 
-    valid_candidates: List[SearchResult] = []
-    for candidate in dense_candidates:
-        doc = active_docs_map.get(candidate.document_id)
+    valid_retrieved_chunks: List[RetrievedChunk] = []
+
+    for combined_score, cand, channel, d_rank, s_rank, d_score, s_score in fused_pool:
+        doc = active_docs_map.get(cand.document_id)
         if not doc:
-            logger.warning("Stage 2 rejected candidate: doc %s not in active PostgreSQL docs", candidate.document_id)
+            logger.warning("Stage 2 rejected candidate: doc %s not in active PostgreSQL docs", cand.document_id)
             continue
 
         # Revalidate authorization against current database records
@@ -227,48 +371,13 @@ async def retrieve_context(
                 outcome="deny",
                 resource_id=str(doc.id),
                 resource_type="document",
-                details={"chunk_id": candidate.chunk_id},
+                details={"chunk_id": cand.chunk_id, "channel": channel},
                 ip_address=ip_address,
             )
             continue
 
-        valid_candidates.append(candidate)
-
-    if not valid_candidates:
-        elapsed = (time.perf_counter() - start_time) * 1000
-        return RetrievalResponse(
-            query=query_params.query,
-            chunks=[],
-            total_candidates_found=0,
-            authorized_documents_count=len(allowed_doc_ids),
-            execution_time_ms=round(elapsed, 2),
-        )
-
-    # -------------------------------------------------------------------------
-    # Hybrid Scoring (Dense + BM25 Sparse Reciprocal Rank Fusion)
-    # -------------------------------------------------------------------------
-    candidate_texts = [c.text for c in valid_candidates]
-    dense_scores = [c.similarity_score for c in valid_candidates]
-
-    if query_params.hybrid:
-        bm25 = BM25Scorer(candidate_texts)
-        sparse_scores = bm25.score(query_params.query)
-        combined_scores = reciprocal_rank_fusion(dense_scores, sparse_scores)
-    else:
-        sparse_scores = [0.0] * len(valid_candidates)
-        combined_scores = dense_scores
-
-    # Build RetrievedChunk objects with verified PostgreSQL document titles
-    scored_chunks: List[Tuple[float, RetrievedChunk]] = []
-    for i, cand in enumerate(valid_candidates):
-        c_score = combined_scores[i]
-        d_score = dense_scores[i]
-        s_score = sparse_scores[i]
-
-        if c_score < query_params.score_threshold:
+        if combined_score < query_params.score_threshold:
             continue
-
-        doc = active_docs_map[cand.document_id]
 
         retrieved = RetrievedChunk(
             chunk_id=cand.chunk_id,
@@ -282,19 +391,49 @@ async def retrieve_context(
             is_confidential=cand.is_confidential,
             dense_score=d_score,
             sparse_score=s_score,
-            combined_score=c_score,
+            combined_score=combined_score,
             content_hash=cand.metadata.get("content_hash", ""),
+            channel=channel,
+            dense_rank=d_rank,
+            sparse_rank=s_rank,
+            rerank_score=None,
+            rerank_rank=None,
             metadata=cand.metadata,
         )
-        scored_chunks.append((c_score, retrieved))
+        valid_retrieved_chunks.append(retrieved)
 
-    # Sort descending by combined score and truncate to top_k
-    scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    final_chunks = [item[1] for item in scored_chunks[: query_params.top_k]]
+    # -------------------------------------------------------------------------
+    # STAGE 3 (Intelligent Reranking Adapter): Reorder authorized candidates
+    # -------------------------------------------------------------------------
+    reranker_latency_ms: Optional[float] = None
+
+    if should_rerank and valid_retrieved_chunks:
+        reranker = get_reranker(settings)
+        # Rerank the top candidates (up to candidate_limit)
+        rerank_input = valid_retrieved_chunks[:candidate_limit]
+        final_chunks, reranker_latency_ms = await reranker.rerank(
+            query=query_params.query,
+            candidates=rerank_input,
+            top_k=query_params.top_k,
+        )
+    else:
+        final_chunks = valid_retrieved_chunks[: query_params.top_k]
 
     elapsed = (time.perf_counter() - start_time) * 1000
 
-    # Audit logging for query execution
+    diagnostics = RetrievalDiagnostics(
+        mode=retrieval_mode,
+        channels_used=channels_used,
+        dense_candidates_count=len(dense_candidates),
+        sparse_candidates_count=len(sparse_candidates),
+        fused_candidates_count=len(fused_pool),
+        post_validation_count=len(valid_retrieved_chunks),
+        reranked=should_rerank,
+        reranker_latency_ms=reranker_latency_ms,
+        authorized_documents_count=len(allowed_doc_ids),
+    )
+
+    # Structured audit logging for retrieval execution
     await log_audit_event(
         db=db,
         actor_user_id=current_user.id,
@@ -303,10 +442,13 @@ async def retrieve_context(
         resource_type="query",
         details={
             "query_preview": query_params.query[:80],
-            "candidates_found": len(valid_candidates),
+            "mode": retrieval_mode,
+            "channels": channels_used,
+            "dense_count": len(dense_candidates),
+            "sparse_count": len(sparse_candidates),
             "returned_chunks": len(final_chunks),
             "authorized_docs_count": len(allowed_doc_ids),
-            "hybrid": query_params.hybrid,
+            "reranked": should_rerank,
             "latency_ms": round(elapsed, 2),
         },
         ip_address=ip_address,
@@ -315,7 +457,8 @@ async def retrieve_context(
     return RetrievalResponse(
         query=query_params.query,
         chunks=final_chunks,
-        total_candidates_found=len(valid_candidates),
+        total_candidates_found=len(valid_retrieved_chunks),
         authorized_documents_count=len(allowed_doc_ids),
         execution_time_ms=round(elapsed, 2),
+        diagnostics=diagnostics,
     )

@@ -91,6 +91,11 @@ export interface RetrievedChunk {
   dense_score: number;
   sparse_score: number;
   combined_score: number;
+  channel?: string;
+  dense_rank?: number | null;
+  sparse_rank?: number | null;
+  rerank_score?: number | null;
+  rerank_rank?: number | null;
 }
 
 export interface ChatQueryResponse {

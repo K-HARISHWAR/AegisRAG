@@ -321,7 +321,55 @@ This log tracks architectural decisions, completed phases, verification commands
   - `pytest backend/tests -v --show-capture=no` -> 81/81 backend tests passed in 67.00s.
   - `npm test` in `frontend/` -> 8/8 frontend tests passed across 3 suites in 27.35s.
   - `npm run build` in `frontend/` -> Production bundle built cleanly (`dist/index.html`, `dist/assets/index-*.css`, `dist/assets/index-*.js`).
-- **Project Completion**: All 10 phases of AegisRAG have been implemented, tested, and documented.
+- **Project Completion**: All 10 phases of AegisRAG Part 1 have been implemented, tested, and documented.
+
+---
+
+## Part 2: Advanced Features & Novelty Roadmap
+
+### Phase 11: Hybrid Retrieval & Intelligent Reranking
+- **Date**: 2026-10-31
+- **Branch**: `feature/phase-11-hybrid-retrieval` (baseline tag: `v1.0.0-part1`)
+- **Completed Deliverables**:
+  - `backend/app/core/config.py`:
+    - Server-side feature flags: `RETRIEVAL_MODE` (`vector` vs `hybrid`), `ENABLE_RERANKER`, `RERANKER_TYPE` (`mock`, `cross_encoder`, `flashrank`), `RERANKER_TIMEOUT_SECONDS` (default `2.0s`), `RRF_K`, `HYBRID_DENSE_WEIGHT`, `HYBRID_SPARSE_WEIGHT`.
+  - `backend/app/schemas/retrieval.py`:
+    - Added request override options `mode` and `rerank` to `RetrievalQuery`.
+    - Added channel provenance and rank diagnostics to `RetrievedChunk`: `channel` (`dense`, `sparse`, `both`), `dense_rank`, `sparse_rank`, `rerank_score`, `rerank_rank`.
+    - Created `RetrievalDiagnostics` schema to capture mode, channels used, candidate pool sizes, Stage 2 post-validation count, and reranker latency.
+    - Updated `RetrievalResponse` with optional `diagnostics` field.
+  - `backend/app/schemas/generation.py`:
+    - Updated `ChatQueryRequest` to support optional `mode` and `rerank` configuration overrides.
+    - Forwarded settings from `generate_answer` down into `retrieve_context`.
+  - `backend/app/services/vector_store.py`:
+    - Added `get_chunks_by_documents(allowed_document_ids)` to `VectorStore` ABC and `ChromaVectorStore` implementation for retrieving pre-filtered candidate chunks across authorized documents.
+  - `backend/app/services/reranker.py`:
+    - `Reranker` abstract base class with pluggable architecture.
+    - `MockReranker`: Cross-attentive token-overlap, exact phrase alignment, and term density reranker for deterministic and offline execution.
+    - `CrossEncoderReranker`: Sentence-transformers CrossEncoder integration with graceful fallback.
+    - `TimeoutSafeReranker`: Decorator enforcing `RERANKER_TIMEOUT_SECONDS` with safe fallback to original RRF candidate order.
+    - `get_reranker`: Factory returning configured reranker instance.
+  - `backend/app/services/retrieval.py`:
+    - Two-channel candidate generation: Channel 1 (Dense ChromaDB search) and Channel 2 (Sparse BM25 search over authorized chunks).
+    - Multi-channel Reciprocal Rank Fusion (RRF) with deduplication, penalty ranking for channel absences, and score normalization.
+    - Strict Stage 2 post-retrieval PostgreSQL revalidation ensuring zero cross-department or cross-tenant leaks.
+    - Reranker integration operating exclusively on authorized survivors.
+    - Granular retrieval diagnostics and structured audit logging.
+  - `evals/benchmark_hybrid.py` & `evals/hybrid_retrieval_report.md`:
+    - Comprehensive benchmark script evaluating Mode 1 (Vector-Only), Mode 2 (Hybrid RRF), and Mode 3 (Hybrid + Reranker) over the 20 benchmark questions.
+    - Verified Recall@5 = 100.0%, MRR = 1.0000, 0 unauthorized RBAC leaks, and P50 latency <= 335ms.
+  - `backend/tests/test_hybrid_retrieval.py`:
+    - 7 comprehensive tests verifying exact keyword query finding passages missed by semantic-only search, conceptual queries, cross-department security isolation, reranker reordering only authorized items, timeout safe fallback, empty-result handling, and diagnostic reporting.
+  - `frontend/src/types/index.ts`:
+    - Updated TypeScript definition of `RetrievedChunk` to include channel provenance and reranker score/rank attributes.
+- **Verification Commands Run**:
+  - `pytest backend/tests/test_hybrid_retrieval.py -v --show-capture=no` -> 7/7 passed in 3.70s.
+  - `pytest backend/tests -v --show-capture=no` -> 88/88 passed in 46.00s.
+  - `python evals/benchmark_hybrid.py` -> All 3 modes evaluated; 0 leaks, 100% recall.
+  - `npm test` in `frontend/` -> 8/8 passed in 14.70s.
+  - `npm run build` in `frontend/` -> Production bundle built in 4.60s.
+- **Next Step**: Phase 12 — Document Versioning & Lifecycle (document revisions, checksum detection, superseding, version-aware citations, rollback).
+
 
 
 
