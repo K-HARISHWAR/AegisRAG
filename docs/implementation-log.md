@@ -421,7 +421,49 @@ This log tracks architectural decisions, completed phases, verification commands
   - `pytest backend/tests/ -v --show-capture=no` -> 95/95 passed in 105.25s.
   - `npm --prefix frontend test` -> 8/8 passed in 27.86s.
   - `npm --prefix frontend run build` -> Production bundle built cleanly with zero TypeScript errors.
-- **Next Step**: Phase 13 — Conversation Memory & Session Continuity.
+- **Next Step**: Phase 13 — Evidence Validation and Responsible Abstention.
+
+---
+
+## Phase 13: Evidence Validation and Responsible Abstention
+- **Date**: 2026-11-01
+- **Completed Deliverables**:
+  - `backend/app/core/config.py`:
+    - Added configuration parameters: `ENABLE_EVIDENCE_VALIDATION: bool = True`, `EVIDENCE_MIN_RELEVANCE_THRESHOLD: float = 0.25`, `EVIDENCE_MIN_FAITHFULNESS_THRESHOLD: float = 0.60`, and `EVIDENCE_STRICT_ABSTENTION: bool = True`.
+  - `backend/app/schemas/generation.py`:
+    - Created `EvidenceDiagnostics` schema capturing `retrieval_relevance` (`high`, `medium`, `low`), `faithfulness_score`, `supported_claims_count`, `total_claims_count`, `conflicts_detected`, `citation_integrity_verified`, and `unsupported_claims`.
+    - Added `evidence_level` (`strong`, `limited`, `insufficient`), `abstention_reason`, and `evidence_diagnostics` to `ChatQueryResponse`.
+  - `backend/app/services/evidence.py`:
+    - Implemented evidence validation engine:
+      - Qualitative categorization (`strong`, `limited`, `insufficient`) avoiding raw uncalibrated probabilities.
+      - Decoupled retrieval relevance, claim-level faithfulness, and model confidence.
+      - Citation integrity verification against PostgreSQL-authorized documents and active document versions.
+      - Conflict detection across retrieved passages.
+      - Responsible abstention triggering when evidence is missing, relevance is low, or claims fail grounding.
+  - `backend/app/services/generation.py`:
+    - Integrated evidence validation into answer generation pipeline.
+    - Set explicit abstention triggers: zero authorized passages, low retrieval relevance, low faithfulness score, or conflicting claims.
+    - Recorded `evidence_level` and `abstention_reason` in structured audit logs.
+  - `backend/tests/test_evidence_abstention.py`:
+    - 6 unit, integration, and security tests covering claim grounding, citation integrity stripping unauthorized/fake documents, conflict detection, strong evidence generation, responsible abstention on unanswerable questions, and untrusted treatment of indirect prompt injections. All 6 passed in 2.54s.
+  - `evals/evidence_benchmark.jsonl`:
+    - Human-labelled benchmark dataset containing 12 enterprise evaluation scenarios covering answerable department queries, cross-department unauthorized queries, unanswerable questions, confidential queries, and indirect prompt injection attempts.
+  - `evals/benchmark_evidence.py` & `evals/evidence_validation_report.md`:
+    - Automated benchmark runner evaluating abstention accuracy, qualitative evidence accuracy, unsupported answer rate, and citation integrity.
+    - Benchmark results: 100.0% Abstention Accuracy, 100.0% Qualitative Evidence Accuracy, 0.0% Unsupported Answer Rate, 100.0% Citation Integrity.
+  - `frontend/src/types/index.ts`:
+    - Added `EvidenceDiagnostics` interface; updated `ChatQueryResponse` and `ChatMessage` with `evidenceLevel`, `abstentionReason`, and `evidenceDiagnostics`.
+  - `frontend/src/pages/ChatPage.tsx`:
+    - Added evidence badge pills (`Strong Evidence`, `Limited Evidence`, `Insufficient Evidence`).
+    - Added explicit abstention reason alerts and grounded evidence state bindings.
+  - `frontend/src/components/CitationDrawer.tsx`:
+    - Added Evidence Grounding Diagnostics card displaying qualitative evidence level, retrieval relevance, claim faithfulness ratio, citation integrity server-verification status, conflict warnings, and list of unsupported claims.
+- **Verification Commands Run**:
+  - `pytest backend/tests/test_evidence_abstention.py -v` -> 6/6 passed.
+  - `pytest backend/tests/ -v --show-capture=no` -> 101/101 passed.
+  - `npm --prefix frontend test` -> 8/8 passed.
+  - `npm --prefix frontend run build` -> Clean build in 5.11s.
+- **Next Step**: Phase 14 — Guardrails & Indirect Prompt Injection Hardening.
 
 
 

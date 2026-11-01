@@ -1,6 +1,6 @@
 import React from 'react';
-import { X, FileText, CheckCircle2, Hash, Layers } from 'lucide-react';
-import { Citation, RetrievedChunk } from '../types';
+import { X, FileText, CheckCircle2, Hash, Layers, ShieldCheck, AlertTriangle, CheckCheck } from 'lucide-react';
+import { Citation, EvidenceDiagnostics, RetrievedChunk } from '../types';
 
 interface CitationDrawerProps {
   isOpen: boolean;
@@ -8,6 +8,8 @@ interface CitationDrawerProps {
   citations: Citation[];
   retrievedChunks?: RetrievedChunk[];
   queryText?: string;
+  evidenceDiagnostics?: EvidenceDiagnostics | null;
+  evidenceLevel?: string;
 }
 
 export const CitationDrawer: React.FC<CitationDrawerProps> = ({
@@ -16,6 +18,8 @@ export const CitationDrawer: React.FC<CitationDrawerProps> = ({
   citations,
   retrievedChunks = [],
   queryText,
+  evidenceDiagnostics,
+  evidenceLevel,
 }) => {
   if (!isOpen) return null;
 
@@ -48,6 +52,100 @@ export const CitationDrawer: React.FC<CitationDrawerProps> = ({
             <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-100 text-xs text-indigo-900">
               <span className="font-semibold text-indigo-700">Question: </span>
               {queryText}
+            </div>
+          )}
+
+          {/* Qualitative Evidence Validation & Faithfulness Card */}
+          {(evidenceLevel || evidenceDiagnostics) && (
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-indigo-600" />
+                  Evidence Grounding Diagnostics
+                </span>
+                {evidenceLevel && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                      evidenceLevel === 'strong'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : evidenceLevel === 'limited'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    {evidenceLevel === 'strong' ? (
+                      <CheckCircle2 size={11} />
+                    ) : (
+                      <AlertTriangle size={11} />
+                    )}
+                    {evidenceLevel.toUpperCase()} EVIDENCE
+                  </span>
+                )}
+              </div>
+
+              {evidenceDiagnostics && (
+                <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                      Retrieval Relevance
+                    </span>
+                    <span
+                      className={`font-semibold capitalize ${
+                        evidenceDiagnostics.retrieval_relevance === 'high'
+                          ? 'text-emerald-600'
+                          : evidenceDiagnostics.retrieval_relevance === 'medium'
+                          ? 'text-amber-600'
+                          : 'text-rose-600'
+                      }`}
+                    >
+                      {evidenceDiagnostics.retrieval_relevance}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                      Claim Faithfulness
+                    </span>
+                    <span className="font-semibold text-slate-700">
+                      {(evidenceDiagnostics.faithfulness_score * 100).toFixed(0)}% (
+                      {evidenceDiagnostics.supported_claims_count}/{evidenceDiagnostics.total_claims_count})
+                    </span>
+                  </div>
+
+                  <div className="col-span-2 p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between">
+                    <span className="text-slate-600 flex items-center gap-1">
+                      <CheckCheck size={12} className="text-emerald-500" />
+                      Citation & Access Integrity
+                    </span>
+                    <span className="font-semibold text-emerald-600 text-[11px]">
+                      {evidenceDiagnostics.citation_integrity_verified ? 'Server Verified' : 'Unverified'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {evidenceDiagnostics?.conflicts_detected && (
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="shrink-0 text-amber-600" />
+                  <span>Conflicting guidance detected across retrieved policy passages.</span>
+                </div>
+              )}
+
+              {evidenceDiagnostics?.unsupported_claims &&
+                evidenceDiagnostics.unsupported_claims.length > 0 && (
+                  <div className="pt-2 border-t border-slate-200 text-[11px]">
+                    <span className="font-semibold text-rose-600 block mb-1">
+                      Unsupported Claims Detected ({evidenceDiagnostics.unsupported_claims.length}):
+                    </span>
+                    <ul className="list-disc list-inside space-y-1 text-slate-600">
+                      {evidenceDiagnostics.unsupported_claims.map((claim, cIdx) => (
+                        <li key={cIdx} className="line-clamp-2">
+                          {claim}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
             </div>
           )}
 

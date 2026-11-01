@@ -127,12 +127,25 @@ export interface DocumentHistoryResponse {
   revisions: DocumentRevisionHistoryItem[];
 }
 
+export interface EvidenceDiagnostics {
+  retrieval_relevance: 'high' | 'medium' | 'low';
+  faithfulness_score: number;
+  supported_claims_count: number;
+  total_claims_count: number;
+  conflicts_detected: boolean;
+  citation_integrity_verified: boolean;
+  unsupported_claims: string[];
+}
+
 export interface ChatQueryResponse {
   query: string;
   answer: string;
   citations: Citation[];
   retrieved_chunks: RetrievedChunk[];
   abstained: boolean;
+  evidence_level?: 'strong' | 'limited' | 'insufficient';
+  abstention_reason?: string | null;
+  evidence_diagnostics?: EvidenceDiagnostics | null;
   execution_time_ms: number;
 }
 
@@ -144,6 +157,9 @@ export interface ChatMessage {
   citations?: Citation[];
   retrievedChunks?: RetrievedChunk[];
   abstained?: boolean;
+  evidenceLevel?: 'strong' | 'limited' | 'insufficient';
+  abstentionReason?: string | null;
+  evidenceDiagnostics?: EvidenceDiagnostics | null;
   executionTimeMs?: number;
   error?: boolean;
 }

@@ -5,17 +5,20 @@ import time
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.generation import ChatQueryRequest, ChatQueryResponse, Citation
 from app.schemas.retrieval import RetrievalQuery, RetrievedChunk
 from app.services.audit import log_audit_event
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
+from app.services.evidence import validate_evidence
 from app.services.llm import ABSTENTION_MESSAGE, LLMProvider, get_llm_provider
 from app.services.retrieval import retrieve_context
 from app.services.vector_store import VectorStore, get_vector_store
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 SYSTEM_INSTRUCTION = """You are AegisRAG, a secure enterprise document assistant.
 
@@ -173,6 +176,9 @@ async def generate_answer(
             citations=[],
             retrieved_chunks=[],
             abstained=False,
+            evidence_level="strong",
+            abstention_reason=None,
+            evidence_diagnostics=None,
             execution_time_ms=round(elapsed, 2),
         )
 
@@ -202,7 +208,12 @@ async def generate_answer(
             action="rag_generation",
             outcome="allow",
             resource_type="chat",
-            details={"abstained": True, "reason": "no_chunks_retrieved", "query": request.query[:80]},
+            details={
+                "abstained": True,
+                "reason": "no_chunks_retrieved",
+                "evidence_level": "insufficient",
+                "query": request.query[:80],
+            },
             ip_address=ip_address,
         )
         return ChatQueryResponse(
@@ -211,6 +222,9 @@ async def generate_answer(
             citations=[],
             retrieved_chunks=[],
             abstained=True,
+            evidence_level="insufficient",
+            abstention_reason="no_relevant_evidence",
+            evidence_diagnostics=None,
             execution_time_ms=round(elapsed, 2),
         )
 
@@ -227,15 +241,38 @@ async def generate_answer(
         logger.error("LLM generation error: %s", exc)
         raw_answer = ABSTENTION_MESSAGE
 
-    # 5. Check abstention status
-    is_abstained = ABSTENTION_MESSAGE.lower() in raw_answer.lower()
+    # 5. Extract preliminary grounded citations
+    initial_citations = extract_grounded_citations(raw_answer, retrieval_res.chunks)
 
-    # 6. Extract and verify citations against PostgreSQL-validated chunks
-    citations = [] if is_abstained else extract_grounded_citations(raw_answer, retrieval_res.chunks)
+    # 6. Post-generation evidence validation, claim grounding, and citation integrity
+    if settings.ENABLE_EVIDENCE_VALIDATION:
+        evidence_result = validate_evidence(
+            query=request.query,
+            raw_answer=raw_answer,
+            retrieved_chunks=retrieval_res.chunks,
+            citations=initial_citations,
+        )
+        if evidence_result.should_abstain:
+            raw_answer = ABSTENTION_MESSAGE
+            is_abstained = True
+            final_citations = []
+        else:
+            is_abstained = False
+            final_citations = evidence_result.validated_citations
+
+        evidence_level = evidence_result.evidence_level
+        abstention_reason = evidence_result.abstention_reason
+        diagnostics = evidence_result.diagnostics
+    else:
+        is_abstained = ABSTENTION_MESSAGE.lower() in raw_answer.lower()
+        final_citations = [] if is_abstained else initial_citations
+        evidence_level = "insufficient" if is_abstained else "strong"
+        abstention_reason = "explicit_abstention" if is_abstained else None
+        diagnostics = None
 
     elapsed = (time.perf_counter() - start_time) * 1000
 
-    # 7. Audit log generation event
+    # 7. Audit log generation event with qualitative evidence diagnostics
     await log_audit_event(
         db=db,
         actor_user_id=current_user.id,
@@ -245,7 +282,9 @@ async def generate_answer(
         details={
             "query_preview": request.query[:80],
             "abstained": is_abstained,
-            "citations_count": len(citations),
+            "abstention_reason": abstention_reason,
+            "evidence_level": evidence_level,
+            "citations_count": len(final_citations),
             "retrieved_chunks_count": len(retrieval_res.chunks),
             "execution_time_ms": round(elapsed, 2),
         },
@@ -255,8 +294,11 @@ async def generate_answer(
     return ChatQueryResponse(
         query=request.query,
         answer=raw_answer,
-        citations=citations,
+        citations=final_citations,
         retrieved_chunks=retrieval_res.chunks,
         abstained=is_abstained,
+        evidence_level=evidence_level,
+        abstention_reason=abstention_reason,
+        evidence_diagnostics=diagnostics,
         execution_time_ms=round(elapsed, 2),
     )

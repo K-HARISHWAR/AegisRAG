@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     HYBRID_DENSE_WEIGHT: float = 0.6
     HYBRID_SPARSE_WEIGHT: float = 0.4
 
+    # Evidence Validation & Responsible Abstention (Phase 13 Feature Flags)
+    ENABLE_EVIDENCE_VALIDATION: bool = True
+    EVIDENCE_MIN_RELEVANCE_THRESHOLD: float = 0.25
+    EVIDENCE_MIN_FAITHFULNESS_THRESHOLD: float = 0.60
+    EVIDENCE_STRICT_ABSTENTION: bool = True
+
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

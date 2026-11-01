@@ -9,10 +9,11 @@ import {
   Shield,
   RefreshCw,
   ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { ChatMessage, Citation, RetrievedChunk } from '../types';
+import { ChatMessage, Citation, EvidenceDiagnostics, RetrievedChunk } from '../types';
 import { CitationDrawer } from '../components/CitationDrawer';
 
 export const ChatPage: React.FC = () => {
@@ -25,6 +26,8 @@ export const ChatPage: React.FC = () => {
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
   const [selectedChunks, setSelectedChunks] = useState<RetrievedChunk[]>([]);
   const [selectedQuery, setSelectedQuery] = useState<string>('');
+  const [selectedEvidenceDiagnostics, setSelectedEvidenceDiagnostics] = useState<EvidenceDiagnostics | null | undefined>(null);
+  const [selectedEvidenceLevel, setSelectedEvidenceLevel] = useState<string | undefined>(undefined);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Persona-tailored starter prompts
@@ -82,6 +85,9 @@ export const ChatPage: React.FC = () => {
         citations: response.citations,
         retrievedChunks: response.retrieved_chunks,
         abstained: response.abstained,
+        evidenceLevel: response.evidence_level,
+        abstentionReason: response.abstention_reason,
+        evidenceDiagnostics: response.evidence_diagnostics,
         executionTimeMs: response.execution_time_ms,
       };
 
@@ -104,6 +110,8 @@ export const ChatPage: React.FC = () => {
     setSelectedCitations(message.citations || []);
     setSelectedChunks(message.retrievedChunks || []);
     setSelectedQuery(message.text);
+    setSelectedEvidenceDiagnostics(message.evidenceDiagnostics);
+    setSelectedEvidenceLevel(message.evidenceLevel);
     setIsDrawerOpen(true);
   };
 
@@ -178,11 +186,37 @@ export const ChatPage: React.FC = () => {
                     : 'bg-white border border-slate-200 text-slate-800 rounded-tl-xs'
                 }`}
               >
+                {/* Evidence Level Badge */}
+                {msg.sender === 'assistant' && !msg.error && msg.evidenceLevel && (
+                  <div className="mb-2">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                        msg.evidenceLevel === 'strong'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : msg.evidenceLevel === 'limited'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      {msg.evidenceLevel === 'strong' ? (
+                        <CheckCircle2 size={10} />
+                      ) : (
+                        <AlertTriangle size={10} />
+                      )}
+                      {msg.evidenceLevel === 'strong'
+                        ? 'Strong Evidence'
+                        : msg.evidenceLevel === 'limited'
+                        ? 'Limited Evidence'
+                        : 'Insufficient Evidence'}
+                    </span>
+                  </div>
+                )}
+
                 {/* Abstention Banner if applicable */}
                 {msg.abstained && (
                   <div className="flex items-center gap-1.5 text-amber-700 font-semibold mb-2 pb-2 border-b border-amber-200/60">
                     <AlertTriangle size={14} />
-                    <span>Insufficient Evidence / Access Restricted</span>
+                    <span>{msg.abstentionReason || 'Insufficient Evidence / Access Restricted'}</span>
                   </div>
                 )}
 
@@ -229,7 +263,7 @@ export const ChatPage: React.FC = () => {
                           {msg.retrievedChunks.length} passages
                         </span>
                       )}
-                      {msg.citations && msg.citations.length > 0 && (
+                      {((msg.citations && msg.citations.length > 0) || msg.evidenceDiagnostics) && (
                         <button
                           onClick={() => handleOpenDrawer(msg)}
                           className="text-indigo-600 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
@@ -305,6 +339,8 @@ export const ChatPage: React.FC = () => {
         citations={selectedCitations}
         retrievedChunks={selectedChunks}
         queryText={selectedQuery}
+        evidenceDiagnostics={selectedEvidenceDiagnostics}
+        evidenceLevel={selectedEvidenceLevel}
       />
     </div>
   );
