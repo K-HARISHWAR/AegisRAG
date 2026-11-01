@@ -54,6 +54,10 @@ export interface DocumentItem {
   is_confidential: boolean;
   status: 'uploaded' | 'processing' | 'indexed' | 'failed' | 'deleted' | string;
   version: number;
+  logical_document_id?: string;
+  supersedes_id?: string | null;
+  lifecycle_state?: 'active' | 'superseded' | 'archived' | 'quarantined' | 'deleted' | string;
+  effective_date?: string | null;
   created_at: string;
   updated_at: string;
   grants: DocumentGrant[];
@@ -76,6 +80,7 @@ export interface DocumentContentResponse {
 export interface Citation {
   document_id: string;
   document_title: string;
+  document_version?: number;
   location: string;
   content_hash: string;
   snippet: string;
@@ -85,6 +90,7 @@ export interface RetrievedChunk {
   chunk_id: string;
   document_id: string;
   document_title: string;
+  document_version?: number;
   location: string;
   content_hash: string;
   text: string;
@@ -96,6 +102,29 @@ export interface RetrievedChunk {
   sparse_rank?: number | null;
   rerank_score?: number | null;
   rerank_rank?: number | null;
+}
+
+export interface DocumentRevisionHistoryItem {
+  id: string;
+  logical_document_id: string;
+  version: number;
+  title: string;
+  lifecycle_state: string;
+  checksum_sha256: string;
+  file_type: string;
+  file_size_bytes: number;
+  owner_id: string;
+  supersedes_id?: string | null;
+  effective_date?: string | null;
+  created_at: string;
+}
+
+export interface DocumentHistoryResponse {
+  logical_document_id: string;
+  title: string;
+  active_version: number;
+  total_revisions: number;
+  revisions: DocumentRevisionHistoryItem[];
 }
 
 export interface ChatQueryResponse {

@@ -39,6 +39,7 @@ class DocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    logical_document_id: uuid.UUID
     title: str
     owner_id: uuid.UUID
     department_id: uuid.UUID
@@ -48,6 +49,9 @@ class DocumentRead(BaseModel):
     is_confidential: bool
     status: str
     version: int
+    lifecycle_state: str = "active"
+    supersedes_id: uuid.UUID | None = None
+    effective_date: datetime | None = None
     created_at: datetime
     updated_at: datetime
     grants: list[DocumentGrantRead] = []
@@ -89,3 +93,32 @@ class DocumentUploadResponse(BaseModel):
     extraction_status: str
     total_passages: int
     warning_message: str | None = None
+
+
+class DocumentRevisionHistoryItem(BaseModel):
+    """Document revision record in history timeline."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    logical_document_id: uuid.UUID
+    version: int
+    title: str
+    lifecycle_state: str
+    checksum_sha256: str
+    file_type: str
+    file_size_bytes: int
+    owner_id: uuid.UUID
+    supersedes_id: uuid.UUID | None = None
+    effective_date: datetime | None = None
+    created_at: datetime
+
+
+class DocumentHistoryResponse(BaseModel):
+    """Document version timeline response."""
+
+    logical_document_id: uuid.UUID
+    title: str
+    active_version: int
+    total_revisions: int
+    revisions: list[DocumentRevisionHistoryItem]

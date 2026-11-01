@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -75,6 +75,28 @@ class Document(Base):
         default=1,
         nullable=False,
     )
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        default=uuid.uuid4,
+        nullable=False,
+        index=True,
+    )
+    supersedes_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID,
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(30),
+        default="active",
+        nullable=False,
+        index=True,
+    )
+    effective_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -102,5 +124,11 @@ class Document(Base):
         "DocumentGrant",
         back_populates="document",
         cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    supersedes: Mapped[Optional["Document"]] = relationship(
+        "Document",
+        remote_side="Document.id",
+        foreign_keys=[supersedes_id],
         lazy="selectin",
     )

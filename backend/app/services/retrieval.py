@@ -347,7 +347,11 @@ async def retrieve_context(
     stmt = (
         select(Document)
         .options(selectinload(Document.grants))
-        .where(Document.id.in_(candidate_doc_ids), Document.status != "deleted")
+        .where(
+            Document.id.in_(candidate_doc_ids),
+            Document.status != "deleted",
+            Document.lifecycle_state == "active",
+        )
     )
     result = await db.execute(stmt)
     active_docs_map: Dict[uuid.UUID, Document] = {d.id: d for d in result.scalars().all()}
@@ -360,8 +364,8 @@ async def retrieve_context(
             logger.warning("Stage 2 rejected candidate: doc %s not in active PostgreSQL docs", cand.document_id)
             continue
 
-        # Revalidate authorization against current database records
-        is_allowed = await can_read_document(current_user, doc, db)
+        # Revalidate authorization against current database records (fail closed if not active)
+        is_allowed = await can_read_document(current_user, doc, db, require_active=True)
         if not is_allowed:
             logger.warning("Stage 2 authorization mismatch: user %s denied read on doc %s", current_user.id, doc.id)
             await log_audit_event(

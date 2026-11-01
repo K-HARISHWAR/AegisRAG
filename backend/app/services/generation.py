@@ -42,7 +42,7 @@ def build_grounded_prompt(query: str, chunks: List[RetrievedChunk]) -> List[Dict
     for chunk in chunks:
         clean_text = sanitize_delimiters(chunk.text)
         block = (
-            f'<document id="{chunk.document_id}" title="{chunk.document_title}" location="{chunk.location}">\n'
+            f'<document id="{chunk.document_id}" title="{chunk.document_title}" version="v{chunk.document_version}" location="{chunk.location}">\n'
             f"{clean_text}\n"
             f"</document>"
         )
@@ -101,6 +101,7 @@ def extract_grounded_citations(
                             Citation(
                                 document_id=chunk.document_id,
                                 document_title=chunk.document_title,
+                                document_version=chunk.document_version,
                                 location=chunk.location,
                                 content_hash=chunk.content_hash,
                                 snippet=chunk.text[:200],
@@ -117,6 +118,7 @@ def extract_grounded_citations(
                     Citation(
                         document_id=chunk.document_id,
                         document_title=chunk.document_title,
+                        document_version=chunk.document_version,
                         location=chunk.location,
                         content_hash=chunk.content_hash,
                         snippet=chunk.text[:200],

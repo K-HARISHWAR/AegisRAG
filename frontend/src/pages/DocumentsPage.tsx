@@ -10,6 +10,7 @@ import {
   Eye,
   CheckCircle2,
   AlertCircle,
+  GitBranch,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -27,6 +28,7 @@ export const DocumentsPage: React.FC = () => {
 
   // Modals state
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [revisingDoc, setRevisingDoc] = useState<DocumentItem | null>(null);
   const [selectedDocForView, setSelectedDocForView] = useState<DocumentItem | null>(null);
   const [selectedDocForGrant, setSelectedDocForGrant] = useState<DocumentItem | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -176,10 +178,11 @@ export const DocumentsPage: React.FC = () => {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-4">Title</th>
+                  <th className="py-3 px-3">Version</th>
                   <th className="py-3 px-3">Type</th>
                   <th className="py-3 px-3">Size</th>
                   <th className="py-3 px-3">Confidentiality</th>
-                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Lifecycle</th>
                   <th className="py-3 px-3">Grants</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -196,6 +199,11 @@ export const DocumentsPage: React.FC = () => {
                       </div>
                       <span className="text-[10px] text-slate-400 font-mono">
                         ID: {doc.id.slice(0, 8)}...
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <span className="px-1.5 py-0.5 rounded font-mono font-bold text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        v{doc.version}
                       </span>
                     </td>
                     <td className="py-3.5 px-3 uppercase font-mono text-[11px] text-slate-500">
@@ -218,15 +226,15 @@ export const DocumentsPage: React.FC = () => {
                     <td className="py-3.5 px-3">
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          doc.status === 'indexed'
+                          (doc.lifecycle_state || 'active') === 'active'
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : doc.status === 'uploaded'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-slate-100 text-slate-700'
+                            : (doc.lifecycle_state === 'superseded')
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-slate-100 text-slate-700 border border-slate-200'
                         }`}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        {doc.status}
+                        {doc.lifecycle_state || 'active'}
                       </span>
                     </td>
                     <td className="py-3.5 px-3">
@@ -239,13 +247,23 @@ export const DocumentsPage: React.FC = () => {
                         <button
                           onClick={() => setSelectedDocForView(doc)}
                           className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                          title="View extracted passages and citation coordinates"
+                          title="View extracted passages, citation coordinates, and revision timeline"
                         >
                           <Eye size={15} />
                         </button>
 
                         {(isManager || isAdmin) && (
                           <>
+                            <button
+                              onClick={() => {
+                                setRevisingDoc(doc);
+                                setIsUploadOpen(true);
+                              }}
+                              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                              title="Upload updated revision (supersedes this version)"
+                            >
+                              <GitBranch size={15} />
+                            </button>
                             <button
                               onClick={() => handleReindex(doc)}
                               className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
@@ -275,9 +293,13 @@ export const DocumentsPage: React.FC = () => {
       {/* Modals */}
       <DocumentUploadModal
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        onClose={() => {
+          setIsUploadOpen(false);
+          setRevisingDoc(null);
+        }}
         onSuccess={fetchDocuments}
         departments={standardDepartments}
+        revisingDocument={revisingDoc}
       />
 
       <DocumentViewerModal
@@ -287,6 +309,7 @@ export const DocumentsPage: React.FC = () => {
           setSelectedDocForView(null);
           setSelectedDocForGrant(doc);
         }}
+        onDocumentUpdated={fetchDocuments}
       />
 
       <GrantModal

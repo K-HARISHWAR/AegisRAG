@@ -67,11 +67,16 @@ export const CitationDrawer: React.FC<CitationDrawerProps> = ({
                     className="p-4 rounded-lg border border-slate-200 bg-white hover:border-indigo-300 transition-all shadow-xs"
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="font-medium text-slate-800 text-sm flex items-center gap-1.5">
+                      <div className="font-medium text-slate-800 text-sm flex items-center gap-1.5 flex-wrap">
                         <FileText size={15} className="text-slate-500 shrink-0" />
-                        <span className="truncate" title={cite.document_title}>
+                        <span className="truncate max-w-[200px]" title={cite.document_title}>
                           {cite.document_title}
                         </span>
+                        {cite.document_version && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-100 text-slate-700 border border-slate-300">
+                            v{cite.document_version}
+                          </span>
+                        )}
                       </div>
                       <span className="shrink-0 px-2 py-0.5 text-xs font-semibold rounded bg-indigo-100 text-indigo-700">
                         {cite.location}

@@ -40,12 +40,16 @@ async def can_read_document(
     user: User,
     document: Document,
     db: AsyncSession,
+    require_active: bool = False,
 ) -> bool:
-    """Verify if user can read the given document. Enforces default-deny."""
+    """Verify if user can read the given document. Enforces default-deny and lifecycle states."""
     if not user.is_active:
         return False
 
-    if document.status == "deleted":
+    if document.status == "deleted" or document.lifecycle_state == "deleted":
+        return False
+
+    if require_active and document.lifecycle_state != "active":
         return False
 
     # 1. Global Admin privilege
@@ -104,16 +108,20 @@ def can_manage_grants(user: User, document: Document) -> bool:
 async def get_authorized_document_ids(
     user: User,
     db: AsyncSession,
+    eligible_lifecycle_states: tuple[str, ...] = ("active",),
 ) -> list[uuid.UUID]:
     """Compute the full set of document IDs authorized for the user.
     
     Used for pre-retrieval vector search filtering from trusted PostgreSQL records.
+    Filters strictly to active lifecycle versions by default.
     """
     if not user.is_active:
         return []
 
+    lifecycle_filter = Document.lifecycle_state.in_(eligible_lifecycle_states)
+
     if user.is_admin:
-        stmt = select(Document.id).where(Document.status != "deleted")
+        stmt = select(Document.id).where(Document.status != "deleted", lifecycle_filter)
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
@@ -124,6 +132,7 @@ async def get_authorized_document_ids(
     owned_stmt = select(Document.id).where(
         Document.owner_id == user.id,
         Document.status != "deleted",
+        lifecycle_filter,
     )
     owned_res = await db.execute(owned_stmt)
     authorized_ids.update(owned_res.scalars().all())
@@ -134,12 +143,14 @@ async def get_authorized_document_ids(
             dept_stmt = select(Document.id).where(
                 Document.department_id == user.department_id,
                 Document.status != "deleted",
+                lifecycle_filter,
             )
         else:
             dept_stmt = select(Document.id).where(
                 Document.department_id == user.department_id,
                 Document.is_confidential.is_(False),
                 Document.status != "deleted",
+                lifecycle_filter,
             )
         dept_res = await db.execute(dept_stmt)
         authorized_ids.update(dept_res.scalars().all())
@@ -151,6 +162,7 @@ async def get_authorized_document_ids(
         .join(Document, Document.id == DocumentGrant.document_id)
         .where(
             Document.status != "deleted",
+            lifecycle_filter,
             or_(
                 DocumentGrant.grantee_user_id == user.id,
                 DocumentGrant.grantee_role_id.in_(user_role_ids) if user_role_ids else False,

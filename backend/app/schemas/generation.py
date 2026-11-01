@@ -25,6 +25,7 @@ class Citation(BaseModel):
 
     document_id: uuid.UUID = Field(description="PostgreSQL document identifier")
     document_title: str = Field(description="Official document title")
+    document_version: int = Field(default=1, description="Document revision version")
     location: str = Field(description="Exact location citation (e.g. 'Page 2', 'Paragraph 3')")
     content_hash: str = Field(description="SHA-256 chunk hash for provenance integrity")
     snippet: str = Field(description="Exemplar passage quote supporting the answer")

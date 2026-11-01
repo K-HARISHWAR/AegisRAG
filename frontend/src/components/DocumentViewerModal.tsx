@@ -1,25 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { X, FileText, Shield, UserPlus, Lock } from 'lucide-react';
+import { X, FileText, Shield, UserPlus, Lock, History, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { api } from '../api/client';
-import { DocumentContentResponse, DocumentItem } from '../types';
+import { DocumentContentResponse, DocumentHistoryResponse, DocumentItem } from '../types';
 import { useAuth } from '../auth/AuthContext';
 
 interface DocumentViewerModalProps {
   document: DocumentItem | null;
   onClose: () => void;
   onOpenGrantModal: (doc: DocumentItem) => void;
+  onDocumentUpdated?: () => void;
 }
 
 export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   document,
   onClose,
   onOpenGrantModal,
+  onDocumentUpdated,
 }) => {
   const { isManager, isAdmin } = useAuth();
   const [content, setContent] = useState<DocumentContentResponse | null>(null);
+  const [history, setHistory] = useState<DocumentHistoryResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'passages' | 'grants'>('passages');
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [rollbackSuccess, setRollbackSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'passages' | 'grants' | 'history'>('passages');
 
   useEffect(() => {
     if (!document) return;
@@ -27,6 +33,7 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     let isMounted = true;
     setLoading(true);
     setError(null);
+    setRollbackSuccess(null);
 
     api.documents
       .getContent(document.id)
@@ -48,9 +55,48 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     };
   }, [document]);
 
+  const loadHistory = () => {
+    if (!document) return;
+    setLoadingHistory(true);
+    setHistoryError(null);
+    api.documents
+      .getHistory(document.id)
+      .then((data) => {
+        setHistory(data);
+        setLoadingHistory(false);
+      })
+      .catch((err) => {
+        setHistoryError(err?.message || 'Failed to load document revision history');
+        setLoadingHistory(false);
+      });
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadHistory();
+    }
+  }, [activeTab, document]);
+
+  const handleRollback = async (revisionId: string, version: number) => {
+    if (!window.confirm(`Are you sure you want to roll back to revision v${version}? This will make v${version} active and supersede newer versions.`)) {
+      return;
+    }
+
+    try {
+      await api.documents.rollback(revisionId);
+      setRollbackSuccess(`Successfully rolled back to revision v${version}.`);
+      loadHistory();
+      if (onDocumentUpdated) {
+        onDocumentUpdated();
+      }
+    } catch (err: any) {
+      setHistoryError(err?.message || 'Failed to execute document rollback');
+    }
+  };
+
   if (!document) return null;
 
-  const canManageGrants = isAdmin || isManager;
+  const canManage = isAdmin || isManager;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
@@ -62,15 +108,29 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
               <FileText size={20} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-semibold text-slate-800">{document.title}</h3>
+                <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-indigo-100 text-indigo-700 rounded border border-indigo-200">
+                  v{document.version}
+                </span>
+                <span
+                  className={`px-2 py-0.5 text-[10px] font-semibold uppercase rounded ${
+                    document.lifecycle_state === 'superseded'
+                      ? 'bg-amber-100 text-amber-800'
+                      : document.lifecycle_state === 'archived'
+                      ? 'bg-purple-100 text-purple-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {document.lifecycle_state || 'active'}
+                </span>
                 {document.is_confidential && (
                   <span className="px-2 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 rounded flex items-center gap-1">
                     <Lock size={10} /> Confidential
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 font-mono">
+              <p className="text-xs text-slate-500 font-mono mt-0.5">
                 {document.file_type.toUpperCase()} • {(document.file_size_bytes / 1024).toFixed(1)} KB •
                 SHA-256: {document.checksum_sha256.slice(0, 12)}...
               </p>
@@ -105,6 +165,17 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             }`}
           >
             Access Grants ({document.grants?.length || 0})
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-3 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'history'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <History size={14} />
+            Revision Timeline
           </button>
         </div>
 
@@ -162,7 +233,7 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                     Overrides department isolation for specific users or roles.
                   </p>
                 </div>
-                {canManageGrants && (
+                {canManage && (
                   <button
                     onClick={() => onOpenGrantModal(document)}
                     className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -202,6 +273,88 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Access is governed by department assignment and confidentiality policy.
                   </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'history' && (
+            <div className="space-y-4">
+              {rollbackSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                  <span>{rollbackSuccess}</span>
+                </div>
+              )}
+
+              {historyError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                  {historyError}
+                </div>
+              )}
+
+              {loadingHistory && (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  <span className="inline-block w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2" />
+                  <p>Loading revision timeline...</p>
+                </div>
+              )}
+
+              {!loadingHistory && history && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-500 mb-2">
+                    <span className="font-semibold text-slate-700">{history.total_revisions} total revisions</span> for this document family.
+                  </div>
+                  {history.revisions.map((rev) => {
+                    const isActive = rev.lifecycle_state === 'active';
+                    return (
+                      <div
+                        key={rev.id}
+                        className={`p-3.5 rounded-lg border text-xs transition-all ${
+                          isActive
+                            ? 'bg-emerald-50/40 border-emerald-300 shadow-xs'
+                            : 'bg-slate-50/70 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-indigo-100 text-indigo-700">
+                              v{rev.version}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 text-[10px] font-semibold uppercase rounded ${
+                                isActive
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {rev.lifecycle_state}
+                            </span>
+                          </div>
+
+                          {canManage && !isActive && rev.lifecycle_state !== 'deleted' && (
+                            <button
+                              onClick={() => handleRollback(rev.id, rev.version)}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 rounded-md flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              title={`Roll back to make v${rev.version} the active document version`}
+                            >
+                              <RotateCcw size={12} />
+                              Rollback to v{rev.version}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-[11px] text-slate-500 space-y-1">
+                          <div>
+                            Uploaded on <span className="font-medium text-slate-700">{new Date(rev.created_at).toLocaleString()}</span>
+                          </div>
+                          <div className="font-mono text-[10px] text-slate-400">
+                            SHA-256: {rev.checksum_sha256.slice(0, 20)}... • {(rev.file_size_bytes / 1024).toFixed(1)} KB
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

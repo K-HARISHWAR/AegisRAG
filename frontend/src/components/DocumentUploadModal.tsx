@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import { X, UploadCloud, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, UploadCloud, AlertCircle, CheckCircle2, Lock, GitBranch } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { DocumentItem } from '../types';
 
 interface DocumentUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   departments: { id: string; name: string }[];
+  revisingDocument?: DocumentItem | null;
 }
 
 export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
@@ -15,17 +17,37 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
   onClose,
   onSuccess,
   departments,
+  revisingDocument = null,
 }) => {
   const { user, isAdmin } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(revisingDocument ? revisingDocument.title : '');
   const [departmentId, setDepartmentId] = useState<string>(
-    user?.department_id || (departments[0]?.id ?? '')
+    revisingDocument
+      ? revisingDocument.department_id
+      : user?.department_id || (departments[0]?.id ?? '')
   );
-  const [isConfidential, setIsConfidential] = useState(false);
+  const [isConfidential, setIsConfidential] = useState(
+    revisingDocument ? revisingDocument.is_confidential : false
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (revisingDocument) {
+      setTitle(revisingDocument.title);
+      setDepartmentId(revisingDocument.department_id);
+      setIsConfidential(revisingDocument.is_confidential);
+    } else {
+      setTitle('');
+      setDepartmentId(user?.department_id || (departments[0]?.id ?? ''));
+      setIsConfidential(false);
+    }
+    setFile(null);
+    setError(null);
+    setSuccessMessage(null);
+  }, [revisingDocument, isOpen]);
 
   if (!isOpen) return null;
 
@@ -69,10 +91,17 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
     formData.append('department_id', deptId);
     formData.append('title', title || file.name);
     formData.append('is_confidential', isConfidential ? 'true' : 'false');
+    if (revisingDocument) {
+      formData.append('revises_document_id', revisingDocument.id);
+    }
 
     try {
       const res = await api.documents.upload(formData);
-      setSuccessMessage(`Document successfully ingested and indexed (${res.document.title})`);
+      setSuccessMessage(
+        revisingDocument
+          ? `Revision v${res.document.version} uploaded successfully. Previous revision superseded.`
+          : `Document successfully ingested and indexed (${res.document.title})`
+      );
       setTimeout(() => {
         onSuccess();
         onClose();
@@ -91,11 +120,19 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-              <UploadCloud size={20} />
+              {revisingDocument ? <GitBranch size={20} /> : <UploadCloud size={20} />}
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-800">Upload Enterprise Document</h3>
-              <p className="text-xs text-slate-500">Auto-parsed and indexed with RBAC safeguards</p>
+              <h3 className="text-base font-semibold text-slate-800">
+                {revisingDocument
+                  ? `Upload Revision (supersedes v${revisingDocument.version})`
+                  : 'Upload Enterprise Document'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {revisingDocument
+                  ? 'Creates an updated revision while preserving audit history'
+                  : 'Auto-parsed and indexed with RBAC safeguards'}
+              </p>
             </div>
           </div>
           <button

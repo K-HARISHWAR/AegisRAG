@@ -1,9 +1,10 @@
 """Document ingestion, extraction, and access management routes enforcing server-side RBAC."""
 
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, List
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,8 +18,10 @@ from app.schemas.document import (
     DocumentCreate,
     DocumentGrantCreate,
     DocumentGrantRead,
+    DocumentHistoryResponse,
     DocumentPassageRead,
     DocumentRead,
+    DocumentRevisionHistoryItem,
     DocumentUploadResponse,
 )
 from app.services.audit import log_audit_event
@@ -47,9 +50,15 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 async def list_documents(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    include_superseded: bool = False,
 ) -> List[DocumentRead]:
     """Retrieve all authorized documents for the current user."""
-    auth_doc_ids = await get_authorized_document_ids(current_user, db)
+    eligible_states = ("active", "superseded", "archived") if include_superseded else ("active",)
+    auth_doc_ids = await get_authorized_document_ids(
+        current_user,
+        db,
+        eligible_lifecycle_states=eligible_states,
+    )
     if not auth_doc_ids:
         return []
 
@@ -95,8 +104,25 @@ async def create_document(
             detail="You are not authorized to upload documents for this department",
         )
 
+    # Check for active duplicate checksum in the target department
+    dup_stmt = select(Document).where(
+        Document.department_id == payload.department_id,
+        Document.checksum_sha256 == payload.checksum_sha256,
+        Document.lifecycle_state == "active",
+        Document.status != "deleted",
+    )
+    existing_dup = (await db.execute(dup_stmt)).scalars().first()
+    if existing_dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Duplicate document detected: exact content already exists with ID {existing_dup.id}",
+        )
+
     storage_key = f"doc_{uuid.uuid4().hex}"
+    doc_id = uuid.uuid4()
     doc = Document(
+        id=doc_id,
+        logical_document_id=doc_id,
         title=payload.title,
         owner_id=current_user.id,
         department_id=payload.department_id,
@@ -107,6 +133,8 @@ async def create_document(
         is_confidential=payload.is_confidential,
         status="uploaded",
         version=1,
+        lifecycle_state="active",
+        effective_date=datetime.now(timezone.utc),
     )
 
     db.add(doc)
@@ -140,6 +168,8 @@ async def upload_document(
     file: Annotated[UploadFile, File(description="Document binary file (PDF, DOCX, XLSX)")],
     is_confidential: Annotated[bool, Form(description="Whether document requires manager privileges")] = False,
     title: Annotated[str | None, Form(description="Optional custom display title")] = None,
+    revises_document_id: Annotated[uuid.UUID | None, Form(description="Document ID that this upload supersedes / revises")] = None,
+    effective_date: Annotated[datetime | None, Form(description="Optional document effective date")] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(get_storage_provider),
@@ -184,6 +214,60 @@ async def upload_document(
         )
         raise HTTPException(status_code=err.status_code, detail=err.message)
 
+    # 2.5 Revision inspection (if revising an existing document)
+    target_original_doc: Document | None = None
+    if revises_document_id is not None:
+        orig_stmt = (
+            select(Document)
+            .options(selectinload(Document.grants))
+            .where(Document.id == revises_document_id, Document.status != "deleted")
+        )
+        target_original_doc = (await db.execute(orig_stmt)).scalars().first()
+        if not target_original_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document to revise not found",
+            )
+        if not (can_manage_grants(current_user, target_original_doc) or can_upload_document(current_user, target_original_doc.department_id)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to revise this document",
+            )
+        if target_original_doc.checksum_sha256 == validated.checksum_sha256:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Revision content is identical to the current revision",
+            )
+
+    # 2.6 Duplicate upload detection via checksum against active documents in the target department
+    target_dept_id = target_original_doc.department_id if target_original_doc else department_id
+    dup_stmt = select(Document).where(
+        Document.department_id == target_dept_id,
+        Document.checksum_sha256 == validated.checksum_sha256,
+        Document.lifecycle_state == "active",
+        Document.status != "deleted",
+    )
+    existing_dup = (await db.execute(dup_stmt)).scalars().first()
+    if existing_dup:
+        if target_original_doc is None or existing_dup.logical_document_id != target_original_doc.logical_document_id:
+            await log_audit_event(
+                db=db,
+                actor_user_id=current_user.id,
+                action="upload_document",
+                outcome="deny",
+                resource_type="document",
+                details={
+                    "reason": "duplicate_document",
+                    "checksum": validated.checksum_sha256,
+                    "existing_id": str(existing_dup.id),
+                },
+                ip_address=ip_address,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Duplicate document detected: exact content already exists with ID {existing_dup.id}",
+            )
+
     display_title = title.strip() if title and title.strip() else validated.sanitized_filename
 
     # 3. Save to storage abstraction with server-generated key
@@ -202,25 +286,67 @@ async def upload_document(
     # Lifecycle status based on extraction outcome
     doc_status = "failed" if extraction.status == "failed" else "uploaded"
 
-    # 5. Persist document record in PostgreSQL
+    # 5. Version and lineage assignment
+    new_doc_id = uuid.uuid4()
+    if target_original_doc is not None:
+        logical_doc_id = target_original_doc.logical_document_id
+        supersedes_id = target_original_doc.id
+        max_v_stmt = select(func.max(Document.version)).where(Document.logical_document_id == logical_doc_id)
+        current_max_ver = (await db.execute(max_v_stmt)).scalar() or target_original_doc.version
+        new_version = current_max_ver + 1
+    else:
+        logical_doc_id = new_doc_id
+        supersedes_id = None
+        new_version = 1
+
+    # 6. Persist document record in PostgreSQL
     doc = Document(
+        id=new_doc_id,
+        logical_document_id=logical_doc_id,
+        supersedes_id=supersedes_id,
+        version=new_version,
+        lifecycle_state="active",
+        effective_date=effective_date or datetime.now(timezone.utc),
         title=display_title,
         owner_id=current_user.id,
-        department_id=department_id,
+        department_id=target_dept_id,
         storage_key=storage_key,
         file_type=validated.file_type,
         file_size_bytes=validated.file_size_bytes,
         checksum_sha256=validated.checksum_sha256,
         is_confidential=is_confidential,
         status=doc_status,
-        version=1,
     )
-
     db.add(doc)
+
+    # 7. Invalidate superseded vectors and update older active revisions in the family
+    if target_original_doc is not None:
+        prev_active_stmt = select(Document).where(
+            Document.logical_document_id == logical_doc_id,
+            Document.lifecycle_state == "active",
+            Document.id != new_doc_id,
+        )
+        prev_active_docs = (await db.execute(prev_active_stmt)).scalars().all()
+        for prev_doc in prev_active_docs:
+            prev_doc.lifecycle_state = "superseded"
+            db.add(prev_doc)
+            vector_store.delete_by_document(prev_doc.id)
+
+        # Inherit explicit grants from the original document
+        for grant in target_original_doc.grants:
+            new_grant = DocumentGrant(
+                document_id=doc.id,
+                grantee_user_id=grant.grantee_user_id,
+                grantee_role_id=grant.grantee_role_id,
+                permission=grant.permission,
+                granted_by_user_id=current_user.id,
+            )
+            db.add(new_grant)
+
     await db.commit()
     await db.refresh(doc)
 
-    # 6. Index document into vector store if extraction succeeded
+    # 8. Index document into vector store if extraction succeeded
     if doc.status != "failed" and extraction.passages:
         try:
             await index_document(
@@ -243,7 +369,10 @@ async def upload_document(
         resource_type="document",
         details={
             "title": doc.title,
-            "department_id": str(department_id),
+            "department_id": str(target_dept_id),
+            "logical_document_id": str(doc.logical_document_id),
+            "version": doc.version,
+            "supersedes_id": str(doc.supersedes_id) if doc.supersedes_id else None,
             "passages_count": len(extraction.passages),
             "status": doc.status,
         },
@@ -432,6 +561,7 @@ async def delete_document(
 
     # 3. Mark status as deleted in database
     document.status = "deleted"
+    document.lifecycle_state = "deleted"
     db.add(document)
     await db.commit()
 
@@ -601,3 +731,148 @@ async def create_document_grant(
     )
 
     return DocumentGrantRead.model_validate(grant)
+
+
+@router.post(
+    "/{document_id}/rollback",
+    response_model=DocumentRead,
+    summary="Roll back to a prior document revision",
+    description="Restores a previous revision as active, marks the current active revision as superseded, and updates vector store indexes.",
+)
+async def rollback_document(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage: StorageProvider = Depends(get_storage_provider),
+    vector_store: VectorStore = Depends(get_vector_store),
+    embedding_provider: EmbeddingProvider = Depends(get_embedding_provider),
+) -> DocumentRead:
+    """Restore a previous revision as the active document version."""
+    ip_address = request.client.host if request.client else None
+
+    stmt = (
+        select(Document)
+        .options(selectinload(Document.grants))
+        .where(Document.id == document_id)
+    )
+    result = await db.execute(stmt)
+    target_doc = result.scalars().first()
+
+    if target_doc is None or target_doc.status == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document revision not found",
+        )
+
+    # Permission check: must be owner, department manager, or admin
+    if not (can_manage_grants(current_user, target_doc) or can_upload_document(current_user, target_doc.department_id)):
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="rollback_document",
+            outcome="deny",
+            resource_id=str(target_doc.id),
+            resource_type="document",
+            ip_address=ip_address,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to roll back this document",
+        )
+
+    if target_doc.lifecycle_state == "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document revision is already active",
+        )
+
+    # 1. Supersede any currently active revision(s) in this family and purge their vectors
+    active_stmt = select(Document).where(
+        Document.logical_document_id == target_doc.logical_document_id,
+        Document.lifecycle_state == "active",
+    )
+    active_docs = (await db.execute(active_stmt)).scalars().all()
+    for active_doc in active_docs:
+        active_doc.lifecycle_state = "superseded"
+        db.add(active_doc)
+        vector_store.delete_by_document(active_doc.id)
+
+    # 2. Mark target document as active
+    target_doc.lifecycle_state = "active"
+    db.add(target_doc)
+    await db.commit()
+    await db.refresh(target_doc)
+
+    # 3. Re-index target document into vector store
+    await index_document(
+        document=target_doc,
+        db=db,
+        storage=storage,
+        vector_store=vector_store,
+        embedding_provider=embedding_provider,
+    )
+
+    await log_audit_event(
+        db=db,
+        actor_user_id=current_user.id,
+        action="rollback_document",
+        outcome="allow",
+        resource_id=str(target_doc.id),
+        resource_type="document",
+        details={
+            "logical_document_id": str(target_doc.logical_document_id),
+            "restored_version": target_doc.version,
+        },
+        ip_address=ip_address,
+    )
+
+    return DocumentRead.model_validate(target_doc)
+
+
+@router.get(
+    "/{document_id}/history",
+    response_model=DocumentHistoryResponse,
+    summary="Get document revision history timeline",
+    description="Returns all revisions belonging to the same logical document ordered by version descending.",
+)
+async def get_document_history(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentHistoryResponse:
+    """Fetch all revisions in the logical document family ordered by version descending."""
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    target_doc = result.scalars().first()
+
+    if target_doc is None or target_doc.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not await can_read_document(current_user, target_doc, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to document history")
+
+    hist_stmt = (
+        select(Document)
+        .where(
+            Document.logical_document_id == target_doc.logical_document_id,
+            Document.status != "deleted",
+        )
+        .order_by(Document.version.desc())
+    )
+    revisions = (await db.execute(hist_stmt)).scalars().all()
+
+    active_ver = target_doc.version
+    for rev in revisions:
+        if rev.lifecycle_state == "active":
+            active_ver = rev.version
+            break
+
+    return DocumentHistoryResponse(
+        logical_document_id=target_doc.logical_document_id,
+        title=target_doc.title,
+        active_version=active_ver,
+        total_revisions=len(revisions),
+        revisions=[DocumentRevisionHistoryItem.model_validate(r) for r in revisions],
+    )

@@ -10,6 +10,8 @@ from app.schemas.document import (
     DocumentPassageRead,
     DocumentContentResponse,
     DocumentUploadResponse,
+    DocumentHistoryResponse,
+    DocumentRevisionHistoryItem,
 )
 from app.schemas.audit import AuditEventRead
 from app.schemas.chunk import Chunk, DocumentChunkRead, SearchResult
@@ -31,6 +33,8 @@ __all__ = [
     "DocumentPassageRead",
     "DocumentContentResponse",
     "DocumentUploadResponse",
+    "DocumentHistoryResponse",
+    "DocumentRevisionHistoryItem",
     "AuditEventRead",
     "Chunk",
     "SearchResult",

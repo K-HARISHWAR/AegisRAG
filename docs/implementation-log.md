@@ -370,6 +370,60 @@ This log tracks architectural decisions, completed phases, verification commands
   - `npm run build` in `frontend/` -> Production bundle built in 4.60s.
 - **Next Step**: Phase 12 — Document Versioning & Lifecycle (document revisions, checksum detection, superseding, version-aware citations, rollback).
 
+---
+
+### Phase 12: Document Versioning & Lifecycle Management
+- **Date**: 2026-11-01
+- **Branch**: `main`
+- **Completed Deliverables**:
+  - `backend/alembic/versions/0002_document_lifecycle_and_versioning.py`:
+    - Database migration adding `logical_document_id` (GUID, indexed), `supersedes_id` (GUID, indexed, self-referential foreign key on PostgreSQL), `lifecycle_state` (`active`, `superseded`, `archived`, `quarantined`, `deleted`), and `effective_date` (nullable timestamp with timezone).
+    - Idempotent backfill: `logical_document_id = id`, `lifecycle_state = 'active'` for all pre-existing records.
+  - `backend/app/models/document.py`:
+    - Updated `Document` model with `logical_document_id`, `supersedes_id`, `lifecycle_state`, `effective_date`, and self-referential `supersedes` relationship.
+  - `backend/app/schemas/document.py` & `backend/app/schemas/__init__.py`:
+    - Updated `DocumentRead` to include lifecycle fields and revision lineage.
+    - Added `DocumentRevisionHistoryItem` and `DocumentHistoryResponse` schemas for timeline visualization.
+  - `backend/app/schemas/generation.py`:
+    - Added `document_version: int = Field(default=1)` to `Citation`.
+  - `backend/app/services/generation.py`:
+    - Updated `build_grounded_prompt` to inject `version="v{chunk.document_version}"` attribute into XML document delimitations.
+    - Updated `extract_grounded_citations` to populate `document_version` directly from verified PostgreSQL chunk provenance.
+  - `backend/app/services/policy.py`:
+    - Updated `can_read_document` to support `require_active: bool = False`, strictly failing closed if non-active states are encountered.
+    - Updated `get_authorized_document_ids` to default to `eligible_lifecycle_states=("active",)`.
+  - `backend/app/services/retrieval.py`:
+    - Hardened Stage 2 post-retrieval validation to enforce `Document.lifecycle_state == 'active'` and `can_read_document(..., require_active=True)`.
+    - Populated `document_version` from chunk metadata with fallback to document record.
+  - `backend/app/api/routes/documents.py`:
+    - **Duplicate Detection**: Check `checksum_sha256` against active documents in target department. Fails with 409 Conflict if duplicate content exists.
+    - **Document Revision (`upload_document`)**: Added `revises_document_id` support. Sets family `logical_document_id`, increments `version`, sets `supersedes_id`, supersedes older active versions, invalidates/purges superseded vectors from ChromaDB, copies explicit grants, and re-indexes new chunks.
+    - **Rollback (`POST /api/v1/documents/{document_id}/rollback`)**: Re-activates prior revision, supersedes active version, re-indexes restored chunks, and purges superseded vectors.
+    - **Revision History (`GET /api/v1/documents/{document_id}/history`)**: Returns full revision timeline ordered by version descending.
+    - **Deletion Lifecycle**: Idempotently marks `lifecycle_state = "deleted"`.
+  - `backend/tests/test_versioning.py`:
+    - 7 comprehensive unit, integration, and security tests covering duplicate detection (409), revision superseding, identical revision rejection (409), lifecycle-scoped retrieval (zero leakage of superseded chunks), version-aware citations, rollback mechanics, full history timelines, and unauthorized revision/rollback rejections (403).
+  - `frontend/src/types/index.ts`:
+    - Updated `DocumentItem`, `Citation`, and `RetrievedChunk` with version and lifecycle fields. Added `DocumentRevisionHistoryItem` and `DocumentHistoryResponse`.
+  - `frontend/src/api/client.ts`:
+    - Added `getHistory(id)` and `rollback(id)` API client functions.
+  - `frontend/src/components/CitationDrawer.tsx`:
+    - Displays version badge (`v{citation.document_version}`) alongside document title and citation coordinates.
+  - `frontend/src/components/DocumentUploadModal.tsx`:
+    - Added revision mode (`revisingDocument`), allowing users to upload updated document revisions that supersede active versions.
+  - `frontend/src/components/DocumentViewerModal.tsx`:
+    - Added "Revision Timeline" tab listing all revisions with version badges, lifecycle status, upload dates, and single-click "Rollback" action for managers.
+  - `frontend/src/pages/DocumentsPage.tsx`:
+    - Added Version and Lifecycle columns with visual status badges, plus "Upload Revision" action button.
+- **Verification Commands Run**:
+  - `alembic upgrade head` -> Applied `0002_lifecycle_versioning` to SQLite and PostgreSQL schemas.
+  - `pytest backend/tests/test_versioning.py -v --show-capture=no` -> 7/7 passed in 14.36s.
+  - `pytest backend/tests/ -v --show-capture=no` -> 95/95 passed in 105.25s.
+  - `npm --prefix frontend test` -> 8/8 passed in 27.86s.
+  - `npm --prefix frontend run build` -> Production bundle built cleanly with zero TypeScript errors.
+- **Next Step**: Phase 13 — Conversation Memory & Session Continuity.
+
+
 
 
 

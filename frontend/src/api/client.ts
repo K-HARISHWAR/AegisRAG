@@ -8,6 +8,7 @@ import {
   AuditEvent,
   ChatQueryResponse,
   DocumentContentResponse,
+  DocumentHistoryResponse,
   DocumentItem,
   SystemHealth,
   User,
@@ -153,6 +154,16 @@ export const api = {
       return request<any>(`/api/v1/documents/${documentId}/grants`, {
         method: 'POST',
         body: JSON.stringify(grant),
+      });
+    },
+
+    async getHistory(id: string): Promise<DocumentHistoryResponse> {
+      return request<DocumentHistoryResponse>(`/api/v1/documents/${id}/history`);
+    },
+
+    async rollback(id: string): Promise<DocumentItem> {
+      return request<DocumentItem>(`/api/v1/documents/${id}/rollback`, {
+        method: 'POST',
       });
     },
   },
