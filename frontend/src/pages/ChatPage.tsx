@@ -10,11 +10,14 @@ import {
   RefreshCw,
   ExternalLink,
   CheckCircle2,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { ChatMessage, Citation, EvidenceDiagnostics, RetrievedChunk } from '../types';
 import { CitationDrawer } from '../components/CitationDrawer';
+import { FeedbackModal } from '../components/FeedbackModal';
 
 export const ChatPage: React.FC = () => {
   const { user, departmentName, primaryRole } = useAuth();
@@ -29,6 +32,8 @@ export const ChatPage: React.FC = () => {
   const [selectedEvidenceDiagnostics, setSelectedEvidenceDiagnostics] = useState<EvidenceDiagnostics | null | undefined>(null);
   const [selectedEvidenceLevel, setSelectedEvidenceLevel] = useState<string | undefined>(undefined);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<ChatMessage | null>(null);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   // Persona-tailored starter prompts
   const starterPrompts = [
@@ -89,6 +94,11 @@ export const ChatPage: React.FC = () => {
         abstentionReason: response.abstention_reason,
         evidenceDiagnostics: response.evidence_diagnostics,
         executionTimeMs: response.execution_time_ms,
+        queryId: response.query_id,
+        modelVersion: response.model_version,
+        promptVersion: response.prompt_version,
+        retrievedDocumentVersions: response.retrieved_document_versions,
+        userQueryText: q,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -104,6 +114,38 @@ export const ChatPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleThumbsUp = async (msg: ChatMessage) => {
+    if (msg.feedbackGiven) return;
+    try {
+      await api.feedback.submit({
+        query_id: msg.queryId || null,
+        query_text: msg.userQueryText || 'User Query',
+        answer_text: msg.text,
+        rating: 'positive',
+        model_version: msg.modelVersion || 'mock-llm-v1',
+        prompt_version: msg.promptVersion || 'v1.0.0',
+        retrieved_document_versions: msg.retrievedDocumentVersions || {},
+        evidence_level: msg.evidenceLevel || null,
+      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, feedbackGiven: 'positive' } : m))
+      );
+    } catch (e) {
+      console.error('Failed to submit positive feedback', e);
+    }
+  };
+
+  const handleOpenFeedbackModal = (msg: ChatMessage) => {
+    setFeedbackMessage(msg);
+    setIsFeedbackModalOpen(true);
+  };
+
+  const handleFeedbackSubmitted = (messageId: string, rating: 'negative') => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, feedbackGiven: rating } : m))
+    );
   };
 
   const handleOpenDrawer = (message: ChatMessage) => {
@@ -263,6 +305,50 @@ export const ChatPage: React.FC = () => {
                           {msg.retrievedChunks.length} passages
                         </span>
                       )}
+                      {/* Response Feedback Buttons */}
+                      <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
+                        {msg.feedbackGiven ? (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
+                              msg.feedbackGiven === 'positive'
+                                ? 'text-emerald-600'
+                                : 'text-rose-600'
+                            }`}
+                          >
+                            {msg.feedbackGiven === 'positive' ? (
+                              <>
+                                <ThumbsUp size={11} className="fill-emerald-100" />
+                                <span>Helpful</span>
+                              </>
+                            ) : (
+                              <>
+                                <ThumbsDown size={11} className="fill-rose-100" />
+                                <span>Reported</span>
+                              </>
+                            )}
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleThumbsUp(msg)}
+                              className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
+                              title="Helpful response"
+                            >
+                              <ThumbsUp size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenFeedbackModal(msg)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Report inaccuracies or issues"
+                            >
+                              <ThumbsDown size={12} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+
                       {((msg.citations && msg.citations.length > 0) || msg.evidenceDiagnostics) && (
                         <button
                           onClick={() => handleOpenDrawer(msg)}
@@ -341,6 +427,14 @@ export const ChatPage: React.FC = () => {
         queryText={selectedQuery}
         evidenceDiagnostics={selectedEvidenceDiagnostics}
         evidenceLevel={selectedEvidenceLevel}
+      />
+
+      {/* Negative Feedback Modal */}
+      <FeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
+        message={feedbackMessage}
+        onFeedbackSubmitted={handleFeedbackSubmitted}
       />
     </div>
   );

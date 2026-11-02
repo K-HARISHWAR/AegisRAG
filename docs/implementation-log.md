@@ -463,7 +463,55 @@ This log tracks architectural decisions, completed phases, verification commands
   - `pytest backend/tests/ -v --show-capture=no` -> 101/101 passed.
   - `npm --prefix frontend test` -> 8/8 passed.
   - `npm --prefix frontend run build` -> Clean build in 5.11s.
-- **Next Step**: Phase 14 — Guardrails & Indirect Prompt Injection Hardening.
+- **Next Step**: Phase 14 — Feedback Loop and Continuous Evaluation.
+
+---
+
+## Phase 14: Feedback Loop and Continuous Evaluation
+- **Date**: 2026-11-02
+- **Completed Deliverables**:
+  - `backend/app/core/config.py`:
+    - Added configuration parameters: `ENABLE_FEEDBACK_COLLECTION: bool = True`, `FEEDBACK_AUTO_CREATE_REVIEW_TASK: bool = True`, `SYSTEM_PROMPT_VERSION: str = "v1.0.0"`, and `BENCHMARK_DATASET_VERSION: str = "v2.0.0"`.
+  - `backend/app/models/feedback.py`:
+    - Created `Feedback` ORM model capturing user ID, query ID, request ID, prompt text, answer text, rating (`positive`/`negative`), failure tags (`incorrect`, `incomplete`, `outdated`, `poor_citation`, `irrelevant_retrieval`, `access_issue`), free-text comment, model version, prompt version, document versions map, evidence level, and review triage fields (`review_status`, `reviewer_user_id`, `reviewer_notes`, `reviewed_at`).
+  - `backend/alembic/versions/0003_feedback_and_review_tasks.py`:
+    - Added database migration creating `feedbacks` table and relevant indexes. Applied with `alembic upgrade head`.
+  - `backend/app/schemas/feedback.py` & `backend/app/schemas/__init__.py`:
+    - Created `FeedbackCreateRequest`, `FeedbackReviewUpdateRequest`, `FeedbackResponse`, and `FeedbackStatsResponse`.
+  - `backend/app/schemas/generation.py`:
+    - Added `query_id`, `model_version`, `prompt_version`, and `retrieved_document_versions` to `ChatQueryResponse`.
+  - `backend/app/services/generation.py`:
+    - Updated `generate_answer()` to generate correlation `query_id`, model and prompt version tracking, and map active document versions from retrieved chunks into responses and audit logs.
+  - `backend/app/services/feedback.py`:
+    - Implemented feedback business logic with `submit_feedback`, `list_feedback`, `get_feedback_stats`, and `update_review_task`.
+    - Enforced strict server-side RBAC: employees only see their own feedback; managers see department feedback; admins see all; managers/admins can triage review tasks.
+    - Implemented hard guardrail: user feedback never triggers automatic fine-tuning or permission mutations.
+  - `backend/app/api/routes/feedback.py`:
+    - Registered endpoints: `POST /api/v1/feedback`, `GET /api/v1/feedback`, `GET /api/v1/feedback/stats`, and `PATCH /api/v1/feedback/{id}/review`.
+  - `backend/tests/test_feedback_eval.py`:
+    - 5 unit, integration, and security tests covering feedback submission, failure reason tags, ownership isolation, department scoping, stats RBAC, human review triage workflow, and empty dashboard handling. All 5 passed in 5.22s.
+  - `evals/golden_benchmark_v2.jsonl`:
+    - 16 versioned enterprise evaluation scenarios (`v2.0.0`) with explicit separation of Development (10) and Holdout (6) splits.
+  - `evals/run_continuous_eval.py` & `evals/continuous_eval_report.md`:
+    - Automated continuous evaluation runner tracking Recall@K (100.0%), MRR (1.000), Faithfulness (100.0%), Citation Correctness (100.0%), and Abstention Accuracy (100.0%).
+  - `frontend/src/types/index.ts`:
+    - Added feedback interfaces and extended `ChatQueryResponse` and `ChatMessage`.
+  - `frontend/src/api/client.ts`:
+    - Added typed API client for feedback submission, listing, statistics, and review updates.
+  - `frontend/src/components/FeedbackModal.tsx`:
+    - User modal for submitting negative feedback with selectable reason tags (`incorrect`, `incomplete`, `outdated`, `poor_citation`, `irrelevant_retrieval`, `access_issue`) and optional comment.
+  - `frontend/src/pages/ChatPage.tsx`:
+    - Integrated Thumbs Up and Thumbs Down feedback controls into the assistant message action bar with immediate positive recording, modal triage for negative ratings, and feedback recorded state badges.
+  - `frontend/src/pages/AdminPage.tsx`:
+    - Added "Quality & Human Reviews" tab with KPI cards (total, satisfaction %, negative count, pending reviews), failure category breakdown, and human review triage queue with update modal.
+- **Verification Commands Run**:
+  - `alembic -c backend/alembic.ini upgrade head` -> Applied `0003_feedback_and_review_tasks`.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR).
+  - `pytest backend/tests/test_feedback_eval.py -v` -> 5/5 passed.
+  - `pytest backend/tests/ -v --show-capture=no` -> 106/106 passed.
+  - `npm --prefix frontend test` -> 8/8 passed.
+  - `npm --prefix frontend run build` -> Clean build in 6.18s with zero errors.
+- **Next Step**: Phase 15 — Conversation Workspaces and Controlled Memory.
 
 
 

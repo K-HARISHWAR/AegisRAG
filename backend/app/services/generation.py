@@ -2,6 +2,7 @@
 
 import re
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,6 +181,10 @@ async def generate_answer(
             abstention_reason=None,
             evidence_diagnostics=None,
             execution_time_ms=round(elapsed, 2),
+            query_id=uuid.uuid4(),
+            model_version=getattr(llm_provider, "model_name", settings.LLM_MODEL),
+            prompt_version=settings.SYSTEM_PROMPT_VERSION,
+            retrieved_document_versions={},
         )
 
     # 1. Retrieve authorized, server-verified context chunks
@@ -271,6 +276,12 @@ async def generate_answer(
         diagnostics = None
 
     elapsed = (time.perf_counter() - start_time) * 1000
+    query_id = uuid.uuid4()
+    model_version = getattr(llm_provider, "model_name", settings.LLM_MODEL)
+    prompt_version = settings.SYSTEM_PROMPT_VERSION
+    retrieved_doc_versions: dict[str, int] = {
+        str(c.document_id): c.document_version for c in retrieval_res.chunks
+    }
 
     # 7. Audit log generation event with qualitative evidence diagnostics
     await log_audit_event(
@@ -278,8 +289,10 @@ async def generate_answer(
         actor_user_id=current_user.id,
         action="rag_generation",
         outcome="allow",
+        resource_id=str(query_id),
         resource_type="chat",
         details={
+            "query_id": str(query_id),
             "query_preview": request.query[:80],
             "abstained": is_abstained,
             "abstention_reason": abstention_reason,
@@ -287,6 +300,8 @@ async def generate_answer(
             "citations_count": len(final_citations),
             "retrieved_chunks_count": len(retrieval_res.chunks),
             "execution_time_ms": round(elapsed, 2),
+            "model_version": model_version,
+            "prompt_version": prompt_version,
         },
         ip_address=ip_address,
     )
@@ -301,4 +316,8 @@ async def generate_answer(
         abstention_reason=abstention_reason,
         evidence_diagnostics=diagnostics,
         execution_time_ms=round(elapsed, 2),
+        query_id=query_id,
+        model_version=model_version,
+        prompt_version=prompt_version,
+        retrieved_document_versions=retrieved_doc_versions,
     )

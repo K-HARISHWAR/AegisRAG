@@ -1,7 +1,7 @@
 """Schemas for RAG question answering, grounded citations, and prompt generation."""
 
 import uuid
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.retrieval import RetrievedChunk
@@ -79,3 +79,19 @@ class ChatQueryResponse(BaseModel):
         description="Explainable evidence verification breakdown",
     )
     execution_time_ms: float
+    query_id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        description="Unique query identifier for feedback correlation",
+    )
+    model_version: str = Field(
+        default="mock-llm-v1",
+        description="Model configuration identifier active during generation",
+    )
+    prompt_version: str = Field(
+        default="v1.0.0",
+        description="Prompt template version identifier",
+    )
+    retrieved_document_versions: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Map of document UUID to active version used in context",
+    )

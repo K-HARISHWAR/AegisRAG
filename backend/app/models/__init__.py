@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.audit import AuditEvent
+from app.models.feedback import Feedback
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "Document",
     "DocumentGrant",
     "AuditEvent",
+    "Feedback",
 ]

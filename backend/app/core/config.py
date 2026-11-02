@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     EVIDENCE_MIN_FAITHFULNESS_THRESHOLD: float = 0.60
     EVIDENCE_STRICT_ABSTENTION: bool = True
 
+    # Feedback Loop & Continuous Evaluation (Phase 14 Feature Flags)
+    ENABLE_FEEDBACK_COLLECTION: bool = True
+    FEEDBACK_AUTO_CREATE_REVIEW_TASK: bool = True
+    SYSTEM_PROMPT_VERSION: str = "v1.0.0"
+    BENCHMARK_DATASET_VERSION: str = "v2.0.0"
+
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

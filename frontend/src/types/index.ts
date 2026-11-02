@@ -147,6 +147,10 @@ export interface ChatQueryResponse {
   abstention_reason?: string | null;
   evidence_diagnostics?: EvidenceDiagnostics | null;
   execution_time_ms: number;
+  query_id?: string;
+  model_version?: string;
+  prompt_version?: string;
+  retrieved_document_versions?: Record<string, number>;
 }
 
 export interface ChatMessage {
@@ -162,6 +166,69 @@ export interface ChatMessage {
   evidenceDiagnostics?: EvidenceDiagnostics | null;
   executionTimeMs?: number;
   error?: boolean;
+  queryId?: string;
+  modelVersion?: string;
+  promptVersion?: string;
+  retrievedDocumentVersions?: Record<string, number>;
+  userQueryText?: string;
+  feedbackGiven?: 'positive' | 'negative';
+}
+
+export type ReviewStatus =
+  | 'pending_review'
+  | 'in_review'
+  | 'reviewed'
+  | 'resolved'
+  | 'dismissed'
+  | 'not_required';
+
+export interface FeedbackItem {
+  id: string;
+  user_id: string;
+  user_email?: string | null;
+  user_department?: string | null;
+  query_id?: string | null;
+  request_id?: string | null;
+  query_text: string;
+  answer_text: string;
+  rating: 'positive' | 'negative';
+  reason_tags: string[];
+  comment?: string | null;
+  model_version?: string | null;
+  prompt_version?: string | null;
+  retrieved_document_versions?: Record<string, number>;
+  evidence_level?: string | null;
+  created_at: string;
+  review_status: ReviewStatus;
+  reviewer_user_id?: string | null;
+  reviewer_email?: string | null;
+  reviewer_notes?: string | null;
+  reviewed_at?: string | null;
+}
+
+export interface FeedbackCreateRequest {
+  query_id?: string | null;
+  request_id?: string | null;
+  query_text: string;
+  answer_text: string;
+  rating: 'positive' | 'negative';
+  reason_tags?: string[];
+  comment?: string | null;
+  model_version?: string | null;
+  prompt_version?: string | null;
+  retrieved_document_versions?: Record<string, number>;
+  evidence_level?: string | null;
+}
+
+export interface FeedbackStats {
+  total_feedback: number;
+  positive_count: number;
+  negative_count: number;
+  satisfaction_rate: number;
+  failure_categories: Record<string, number>;
+  pending_reviews_count: number;
+  in_review_count: number;
+  resolved_reviews_count: number;
 }
 
 export interface AuditEvent {

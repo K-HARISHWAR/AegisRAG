@@ -10,6 +10,9 @@ import {
   DocumentContentResponse,
   DocumentHistoryResponse,
   DocumentItem,
+  FeedbackCreateRequest,
+  FeedbackItem,
+  FeedbackStats,
   SystemHealth,
   User,
 } from '../types';
@@ -176,6 +179,45 @@ export const api = {
 
     async listAuditLogs(limit: number = 50, offset: number = 0): Promise<AuditEvent[]> {
       return request<AuditEvent[]>(`/api/v1/admin/audit-logs?limit=${limit}&offset=${offset}`);
+    },
+  },
+
+  // Feedback & Quality Analytics (Phase 14)
+  feedback: {
+    async submit(payload: FeedbackCreateRequest): Promise<FeedbackItem> {
+      return request<FeedbackItem>('/api/v1/feedback', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async list(params?: {
+      rating?: string;
+      review_status?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<FeedbackItem[]> {
+      const q = new URLSearchParams();
+      if (params?.rating) q.set('rating', params.rating);
+      if (params?.review_status) q.set('review_status', params.review_status);
+      if (params?.limit) q.set('limit', String(params.limit));
+      if (params?.offset) q.set('offset', String(params.offset));
+      const queryString = q.toString() ? `?${q.toString()}` : '';
+      return request<FeedbackItem[]>(`/api/v1/feedback${queryString}`);
+    },
+
+    async getStats(): Promise<FeedbackStats> {
+      return request<FeedbackStats>('/api/v1/feedback/stats');
+    },
+
+    async updateReview(
+      feedbackId: string,
+      payload: { review_status: string; reviewer_notes?: string }
+    ): Promise<FeedbackItem> {
+      return request<FeedbackItem>(`/api/v1/feedback/${feedbackId}/review`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
     },
   },
 
