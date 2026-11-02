@@ -513,6 +513,56 @@ This log tracks architectural decisions, completed phases, verification commands
   - `npm --prefix frontend run build` -> Clean build in 6.18s with zero errors.
 - **Next Step**: Phase 15 — Conversation Workspaces and Controlled Memory.
 
+---
+
+## Phase 15: Conversation Workspaces and Controlled Memory
+- **Date**: 2026-11-02
+- **Completed Deliverables**:
+  - `backend/app/models/thread.py`:
+    - Defined `Thread`, `ThreadMessage`, and `ThreadBookmark` SQLAlchemy ORM models with cascading foreign keys and indexes on `user_id`, `thread_id`, and `document_id`.
+  - `backend/alembic/versions/0004_conversation_threads_and_memory.py`:
+    - Alembic migration for `threads`, `thread_messages`, and `thread_bookmarks` tables and indexes. Applied with `alembic upgrade head`.
+  - `backend/app/schemas/thread.py` & `backend/app/schemas/__init__.py`:
+    - Defined Pydantic schemas: `ThreadCreate`, `ThreadUpdate`, `ThreadMessageCreate`, `ThreadMessageRead`, `ThreadBookmarkCreate`, `ThreadBookmarkRead`, `ThreadSummaryRead`, `ThreadRead`.
+  - `backend/app/services/thread.py`:
+    - Implemented conversation workspace service layer:
+      - `get_user_thread_or_404`: Strict user isolation (zero IDOR leakage, returns 404 for threads belonging to other users).
+      - `create_thread`, `list_threads`, `get_thread_details`, `update_thread`, `delete_thread`.
+      - `send_thread_message`: Enforces mandatory security invariant—before using prior conversation citations in contextual follow-ups, revalidates `can_read_document(user, doc, db, require_active=True)`. Revoked document citations are stripped and replaced with `[Historical content redacted due to access revocation]`.
+      - `create_thread_bookmark`, `delete_thread_bookmark`: Verifies active read permissions before bookmarking; omitted from get thread details if access is revoked.
+  - `backend/app/api/routes/threads.py`:
+    - Registered endpoints: `POST /api/v1/threads`, `GET /api/v1/threads`, `GET /api/v1/threads/{id}`, `PATCH /api/v1/threads/{id}`, `DELETE /api/v1/threads/{id}`, `POST /api/v1/threads/{id}/messages`, `POST /api/v1/threads/{id}/bookmarks`, `DELETE /api/v1/threads/bookmarks/{id}`.
+  - `backend/app/api/routes/documents.py`:
+    - Added explicit grant revocation endpoint `DELETE /api/v1/documents/{document_id}/grants/{grant_id}` with RBAC permission check (`can_manage_grants`).
+  - `backend/tests/test_conversation_workspaces.py`:
+    - 5 unit, integration, and security tests:
+      1. `test_thread_isolation_cannot_access_other_users_thread`: IDOR isolation across users.
+      2. `test_new_thread_has_no_prior_context`: Clean state and zero prior context in new threads.
+      3. `test_thread_rename_archive_and_delete`: Thread lifecycle transitions (rename, archive toggle, delete).
+      4. `test_revoked_document_access_revalidated_in_followup`: Grant revocation between turns redacts historical citations and triggers abstention.
+      5. `test_bookmark_revalidation_and_access`: Unauthorized bookmarking rejected (403); revoked document bookmarks automatically filtered out.
+  - `frontend/src/types/index.ts`:
+    - Added TypeScript interfaces for `ThreadSummary`, `ThreadMessage`, `ThreadBookmark`, `ThreadDetails`, `ThreadCreateRequest`, `ThreadUpdateRequest`, `ThreadMessageCreateRequest`, `ThreadBookmarkCreateRequest`.
+  - `frontend/src/api/client.ts`:
+    - Added typed API client methods for all thread workspace and bookmark operations.
+  - `frontend/src/components/ThreadSidebar.tsx`:
+    - Interactive conversation workspace sidebar with "New Conversation", Active/Archived tabs, inline title renaming, archive/unarchive toggle, delete confirmation, and bookmarks drawer launcher.
+  - `frontend/src/components/BookmarksModal.tsx`:
+    - Server-verified saved snippets viewer displaying active citations with document location, hash, personal note, and deletion controls.
+  - `frontend/src/components/AddBookmarkModal.tsx`:
+    - Modal enabling one-click citation bookmarking with optional notes.
+  - `frontend/src/pages/ChatPage.tsx`:
+    - Integrated conversation workspaces sidebar and thread session state into chat UI. Supports contextual follow-ups, clean "New Conversation" resets, bookmark buttons on citation badges, and preserves backward compatibility with single-turn query API.
+- **Verification Commands Run**:
+  - `alembic upgrade head` -> Applied migration `0004_conversation_threads_and_memory`.
+  - `pytest backend/tests/test_conversation_workspaces.py -v` -> 5/5 passed.
+  - `pytest backend/tests/ -v` -> 111/111 passed in 202.90s.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR).
+  - `npm --prefix frontend test` -> 8/8 passed.
+  - `npm --prefix frontend run build` -> Clean build in 8.80s with zero errors.
+- **Next Step**: Phase 16 — Advanced Deployment, Observability, and Enterprise Readiness.
+
+
 
 
 

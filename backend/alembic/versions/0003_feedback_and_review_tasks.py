@@ -57,3 +57,4 @@ def downgrade() -> None:
     insp = sa.inspect(bind)
     if insp.has_table("feedbacks"):
         op.drop_table("feedbacks")
+

@@ -129,3 +129,4 @@ class FeedbackStatsResponse(BaseModel):
     pending_reviews_count: int = Field(description="Number of negative feedback items pending triage")
     in_review_count: int = Field(description="Number of feedback items currently being investigated")
     resolved_reviews_count: int = Field(description="Number of feedback items marked resolved")
+

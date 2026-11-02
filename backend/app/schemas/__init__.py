@@ -23,6 +23,16 @@ from app.schemas.feedback import (
     FeedbackResponse,
     FeedbackStatsResponse,
 )
+from app.schemas.thread import (
+    ThreadCreate,
+    ThreadUpdate,
+    ThreadRead,
+    ThreadSummaryRead,
+    ThreadMessageCreate,
+    ThreadMessageRead,
+    ThreadBookmarkCreate,
+    ThreadBookmarkRead,
+)
 
 __all__ = [
     "LoginRequest",
@@ -55,4 +65,12 @@ __all__ = [
     "FeedbackReviewUpdateRequest",
     "FeedbackResponse",
     "FeedbackStatsResponse",
+    "ThreadCreate",
+    "ThreadUpdate",
+    "ThreadRead",
+    "ThreadSummaryRead",
+    "ThreadMessageCreate",
+    "ThreadMessageRead",
+    "ThreadBookmarkCreate",
+    "ThreadBookmarkRead",
 ]

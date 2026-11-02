@@ -254,3 +254,76 @@ export interface SystemHealth {
   };
 }
 
+export interface ThreadSummary {
+  id: string;
+  user_id: string;
+  title: string;
+  is_archived: boolean;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadMessage {
+  id: string;
+  thread_id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  citations: Citation[];
+  abstained: boolean;
+  evidence_level?: string | null;
+  abstention_reason?: string | null;
+  query_id?: string | null;
+  created_at: string;
+}
+
+export interface ThreadBookmark {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  document_id: string;
+  title: string;
+  location: string;
+  snippet: string;
+  content_hash: string;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface ThreadDetails {
+  id: string;
+  user_id: string;
+  title: string;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+  messages: ThreadMessage[];
+  bookmarks: ThreadBookmark[];
+}
+
+export interface ThreadCreateRequest {
+  title?: string;
+}
+
+export interface ThreadUpdateRequest {
+  title?: string;
+  is_archived?: boolean;
+}
+
+export interface ThreadMessageCreateRequest {
+  query: string;
+  top_k?: number;
+  hybrid?: boolean;
+  temperature?: number;
+}
+
+export interface ThreadBookmarkCreateRequest {
+  document_id: string;
+  title: string;
+  location: string;
+  snippet: string;
+  content_hash: string;
+  notes?: string;
+}
+
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Send,
   Sparkles,
@@ -12,18 +12,38 @@ import {
   CheckCircle2,
   ThumbsUp,
   ThumbsDown,
+  Bookmark,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { ChatMessage, Citation, EvidenceDiagnostics, RetrievedChunk } from '../types';
+import {
+  ChatMessage,
+  Citation,
+  EvidenceDiagnostics,
+  RetrievedChunk,
+  ThreadBookmark,
+  ThreadBookmarkCreateRequest,
+  ThreadSummary,
+} from '../types';
 import { CitationDrawer } from '../components/CitationDrawer';
 import { FeedbackModal } from '../components/FeedbackModal';
+import { ThreadSidebar } from '../components/ThreadSidebar';
+import { BookmarksModal } from '../components/BookmarksModal';
+import { AddBookmarkModal } from '../components/AddBookmarkModal';
 
 export const ChatPage: React.FC = () => {
   const { user, departmentName, primaryRole } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputQuery, setInputQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Thread workspaces state (Phase 15)
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [bookmarks, setBookmarks] = useState<ThreadBookmark[]>([]);
+  const [isBookmarksModalOpen, setIsBookmarksModalOpen] = useState(false);
+  const [bookmarkCitation, setBookmarkCitation] = useState<Citation | null>(null);
+  const [isAddBookmarkModalOpen, setIsAddBookmarkModalOpen] = useState(false);
 
   // Citation Drawer state
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
@@ -34,6 +54,130 @@ export const ChatPage: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<ChatMessage | null>(null);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+
+  // Load threads on mount if thread API is available
+  useEffect(() => {
+    if (api.threads && typeof api.threads.list === 'function') {
+      loadThreads(true);
+    }
+  }, []);
+
+  const loadThreads = async (selectFirst: boolean = false) => {
+    try {
+      if (!api.threads?.list) return;
+      const list = await api.threads.list(true);
+      setThreads(list);
+
+      if (selectFirst && list.length > 0) {
+        const firstActive = list.find((t) => !t.is_archived) || list[0];
+        await handleSelectThread(firstActive.id);
+      }
+    } catch (err) {
+      console.error('Failed to load conversation threads', err);
+    }
+  };
+
+  const handleSelectThread = async (threadId: string) => {
+    try {
+      if (!api.threads?.get) return;
+      const details = await api.threads.get(threadId);
+      setActiveThreadId(details.id);
+      setBookmarks(details.bookmarks || []);
+
+      const formattedMessages: ChatMessage[] = details.messages.map((m) => ({
+        id: m.id,
+        sender: m.sender,
+        text: m.text,
+        timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        citations: m.citations,
+        abstained: m.abstained,
+        evidenceLevel: (m.evidence_level as 'strong' | 'limited' | 'insufficient') || undefined,
+        abstentionReason: m.abstention_reason || undefined,
+        queryId: m.query_id || undefined,
+        userQueryText: m.sender === 'user' ? m.text : undefined,
+      }));
+
+      setMessages(formattedMessages);
+    } catch (err) {
+      console.error('Failed to select thread', err);
+    }
+  };
+
+  const handleNewThread = async () => {
+    try {
+      if (api.threads?.create) {
+        const newTh = await api.threads.create({ title: 'New Conversation' });
+        setActiveThreadId(newTh.id);
+        setMessages([]);
+        setBookmarks([]);
+        await loadThreads();
+      } else {
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('Failed to create new conversation', err);
+    }
+  };
+
+  const handleRenameThread = async (threadId: string, newTitle: string) => {
+    try {
+      if (!api.threads?.update) return;
+      await api.threads.update(threadId, { title: newTitle });
+      await loadThreads();
+    } catch (err) {
+      console.error('Failed to rename thread', err);
+    }
+  };
+
+  const handleArchiveToggle = async (threadId: string, currentArchived: boolean) => {
+    try {
+      if (!api.threads?.update) return;
+      await api.threads.update(threadId, { is_archived: !currentArchived });
+      await loadThreads();
+    } catch (err) {
+      console.error('Failed to toggle archive', err);
+    }
+  };
+
+  const handleDeleteThread = async (threadId: string) => {
+    try {
+      if (!api.threads?.delete) return;
+      await api.threads.delete(threadId);
+      if (activeThreadId === threadId) {
+        setActiveThreadId(null);
+        setMessages([]);
+        setBookmarks([]);
+        await loadThreads(true);
+      } else {
+        await loadThreads();
+      }
+    } catch (err) {
+      console.error('Failed to delete thread', err);
+    }
+  };
+
+  const handleOpenAddBookmark = (citation: Citation) => {
+    setBookmarkCitation(citation);
+    setIsAddBookmarkModalOpen(true);
+  };
+
+  const handleSaveBookmark = async (payload: ThreadBookmarkCreateRequest) => {
+    if (!activeThreadId || !api.threads?.addBookmark) {
+      throw new Error('Please select an active conversation thread before bookmarking');
+    }
+    const saved = await api.threads.addBookmark(activeThreadId, payload);
+    setBookmarks((prev) => [saved, ...prev]);
+  };
+
+  const handleDeleteBookmark = async (bookmarkId: string) => {
+    try {
+      if (!api.threads?.deleteBookmark) return;
+      await api.threads.deleteBookmark(bookmarkId);
+      setBookmarks((prev) => prev.filter((b) => b.id !== bookmarkId));
+    } catch (err) {
+      console.error('Failed to delete bookmark', err);
+    }
+  };
 
   // Persona-tailored starter prompts
   const starterPrompts = [
@@ -68,6 +212,19 @@ export const ChatPage: React.FC = () => {
     const q = (queryText || inputQuery).trim();
     if (!q || isLoading) return;
 
+    let targetThreadId = activeThreadId;
+
+    // Create a thread if multi-turn thread API is enabled but no active thread exists
+    if (!targetThreadId && api.threads?.create) {
+      try {
+        const newTh = await api.threads.create({ title: q.slice(0, 30) });
+        targetThreadId = newTh.id;
+        setActiveThreadId(newTh.id);
+      } catch (e) {
+        console.error('Failed to auto-create thread', e);
+      }
+    }
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -80,28 +237,44 @@ export const ChatPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await api.chat.query({ query: q });
-
-      const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        sender: 'assistant',
-        text: response.answer,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        citations: response.citations,
-        retrievedChunks: response.retrieved_chunks,
-        abstained: response.abstained,
-        evidenceLevel: response.evidence_level,
-        abstentionReason: response.abstention_reason,
-        evidenceDiagnostics: response.evidence_diagnostics,
-        executionTimeMs: response.execution_time_ms,
-        queryId: response.query_id,
-        modelVersion: response.model_version,
-        promptVersion: response.prompt_version,
-        retrievedDocumentVersions: response.retrieved_document_versions,
-        userQueryText: q,
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      if (api.threads?.sendMessage && targetThreadId) {
+        const response = await api.threads.sendMessage(targetThreadId, { query: q });
+        const assistantMessage: ChatMessage = {
+          id: response.id,
+          sender: 'assistant',
+          text: response.text,
+          timestamp: new Date(response.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          citations: response.citations,
+          abstained: response.abstained,
+          evidenceLevel: (response.evidence_level as 'strong' | 'limited' | 'insufficient') || undefined,
+          abstentionReason: response.abstention_reason || undefined,
+          queryId: response.query_id || undefined,
+          userQueryText: q,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+        loadThreads();
+      } else {
+        const response = await api.chat.query({ query: q });
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          sender: 'assistant',
+          text: response.answer,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          citations: response.citations,
+          retrievedChunks: response.retrieved_chunks,
+          abstained: response.abstained,
+          evidenceLevel: response.evidence_level,
+          abstentionReason: response.abstention_reason,
+          evidenceDiagnostics: response.evidence_diagnostics,
+          executionTimeMs: response.execution_time_ms,
+          queryId: response.query_id,
+          modelVersion: response.model_version,
+          promptVersion: response.prompt_version,
+          retrievedDocumentVersions: response.retrieved_document_versions,
+          userQueryText: q,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
@@ -158,284 +331,328 @@ export const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-5xl mx-auto px-4 py-6">
-      {/* Scope Banner */}
-      <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-600">
-        <div className="flex items-center gap-2">
-          <Shield size={16} className="text-indigo-600" />
-          <span>
-            Active RBAC Session:{' '}
-            <strong className="text-slate-800">{user?.email}</strong> (
-            <span className="text-indigo-600 font-semibold">{departmentName}</span> •{' '}
-            <span className="font-semibold">{primaryRole}</span>)
-          </span>
-        </div>
-        <span className="text-[11px] text-slate-400">Two-Stage PostgreSQL RBAC Active</span>
-      </div>
+    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Conversation Workspaces Sidebar */}
+      {api.threads && (
+        <ThreadSidebar
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onSelectThread={handleSelectThread}
+          onNewThread={handleNewThread}
+          onRenameThread={handleRenameThread}
+          onArchiveToggle={handleArchiveToggle}
+          onDeleteThread={handleDeleteThread}
+          bookmarks={bookmarks}
+          onOpenBookmarks={() => setIsBookmarksModalOpen(true)}
+          isLoading={isLoading}
+        />
+      )}
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-        {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4">
-              <Sparkles size={24} />
-            </div>
-            <h2 className="text-lg font-bold text-slate-800 mb-1">
-              How can AegisRAG assist you today?
-            </h2>
-            <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
-              Ask questions grounded directly in your department's enterprise documents. Access to
-              confidential or cross-department files is strictly governed by server RBAC.
-            </p>
-
-            {/* Quick Starters */}
-            <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-              {starterPrompts.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSend(s.query)}
-                  className="p-3 bg-white border border-slate-200 hover:border-indigo-400 rounded-xl shadow-xs transition-all text-xs cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-slate-800 group-hover:text-indigo-600">
-                      {s.title}
-                    </span>
-                    <span className="text-[10px] text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded">
-                      {s.dept}
-                    </span>
-                  </div>
-                  <p className="text-slate-500 line-clamp-2 text-[11px]">{s.query}</p>
-                </button>
-              ))}
-            </div>
+      {/* Main Chat Workspace Area */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden max-w-5xl mx-auto px-4 py-6">
+        {/* Scope Banner */}
+        <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-600">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-indigo-600" />
+            <span>
+              Active RBAC Session:{' '}
+              <strong className="text-slate-800">{user?.email}</strong> (
+              <span className="text-indigo-600 font-semibold">{departmentName}</span> •{' '}
+              <span className="font-semibold">{primaryRole}</span>)
+            </span>
           </div>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${
-                msg.sender === 'user' ? 'items-end' : 'items-start'
-              }`}
-            >
+          <span className="text-[11px] text-slate-400">Two-Stage PostgreSQL RBAC Active</span>
+        </div>
+
+        {/* Messages Scroll Area */}
+        <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4">
+                <Sparkles size={24} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800 mb-1">
+                How can AegisRAG assist you today?
+              </h2>
+              <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
+                Ask questions grounded directly in your department's enterprise documents. Access to
+                confidential or cross-department files is strictly governed by server RBAC.
+              </p>
+
+              {/* Quick Starters */}
+              <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                {starterPrompts.map((s, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSend(s.query)}
+                    className="p-3 bg-white border border-slate-200 hover:border-indigo-400 rounded-xl shadow-xs transition-all text-xs cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-slate-800 group-hover:text-indigo-600">
+                        {s.title}
+                      </span>
+                      <span className="text-[10px] text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded">
+                        {s.dept}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 line-clamp-2 text-[11px]">{s.query}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((msg) => (
               <div
-                className={`max-w-2xl rounded-2xl p-4 text-xs leading-relaxed shadow-xs ${
-                  msg.sender === 'user'
-                    ? 'bg-indigo-600 text-white rounded-tr-xs'
-                    : msg.error
-                    ? 'bg-red-50 border border-red-200 text-red-800 rounded-tl-xs'
-                    : msg.abstained
-                    ? 'bg-amber-50/70 border border-amber-200 text-amber-900 rounded-tl-xs'
-                    : 'bg-white border border-slate-200 text-slate-800 rounded-tl-xs'
+                key={msg.id}
+                className={`flex flex-col ${
+                  msg.sender === 'user' ? 'items-end' : 'items-start'
                 }`}
               >
-                {/* Evidence Level Badge */}
-                {msg.sender === 'assistant' && !msg.error && msg.evidenceLevel && (
-                  <div className="mb-2">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                        msg.evidenceLevel === 'strong'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : msg.evidenceLevel === 'limited'
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}
-                    >
-                      {msg.evidenceLevel === 'strong' ? (
-                        <CheckCircle2 size={10} />
-                      ) : (
-                        <AlertTriangle size={10} />
-                      )}
-                      {msg.evidenceLevel === 'strong'
-                        ? 'Strong Evidence'
-                        : msg.evidenceLevel === 'limited'
-                        ? 'Limited Evidence'
-                        : 'Insufficient Evidence'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Abstention Banner if applicable */}
-                {msg.abstained && (
-                  <div className="flex items-center gap-1.5 text-amber-700 font-semibold mb-2 pb-2 border-b border-amber-200/60">
-                    <AlertTriangle size={14} />
-                    <span>{msg.abstentionReason || 'Insufficient Evidence / Access Restricted'}</span>
-                  </div>
-                )}
-
-                <p className="whitespace-pre-wrap">{msg.text}</p>
-
-                {/* Inline Citations & Diagnostics Bar */}
-                {msg.sender === 'assistant' && !msg.error && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {msg.citations && msg.citations.length > 0 ? (
-                        <>
-                          <span className="text-slate-400 font-medium">Sources:</span>
-                          {msg.citations.map((c, i) => (
-                            <button
-                              key={i}
-                              onClick={() => handleOpenDrawer(msg)}
-                              className="px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium flex items-center gap-1 cursor-pointer transition-colors border border-indigo-100"
-                              title={`View passage quote: ${c.document_title} (${c.location})`}
-                            >
-                              <FileText size={11} />
-                              <span>{c.document_title}</span>
-                              <span className="text-indigo-400 font-semibold">({c.location})</span>
-                            </button>
-                          ))}
-                        </>
-                      ) : (
-                        <span className="text-slate-400 italic">No source documents cited</span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 text-slate-400 ml-auto">
-                      {msg.executionTimeMs && (
-                        <span className="flex items-center gap-1" title="Generation latency">
-                          <Clock size={11} />
-                          {msg.executionTimeMs.toFixed(0)}ms
-                        </span>
-                      )}
-                      {msg.retrievedChunks && (
-                        <span
-                          className="flex items-center gap-1"
-                          title="Retrieved candidate chunks"
-                        >
-                          <Layers size={11} />
-                          {msg.retrievedChunks.length} passages
-                        </span>
-                      )}
-                      {/* Response Feedback Buttons */}
-                      <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
-                        {msg.feedbackGiven ? (
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
-                              msg.feedbackGiven === 'positive'
-                                ? 'text-emerald-600'
-                                : 'text-rose-600'
-                            }`}
-                          >
-                            {msg.feedbackGiven === 'positive' ? (
-                              <>
-                                <ThumbsUp size={11} className="fill-emerald-100" />
-                                <span>Helpful</span>
-                              </>
-                            ) : (
-                              <>
-                                <ThumbsDown size={11} className="fill-rose-100" />
-                                <span>Reported</span>
-                              </>
-                            )}
-                          </span>
+                <div
+                  className={`max-w-2xl rounded-2xl p-4 text-xs leading-relaxed shadow-xs ${
+                    msg.sender === 'user'
+                      ? 'bg-indigo-600 text-white rounded-tr-xs'
+                      : msg.error
+                      ? 'bg-red-50 border border-red-200 text-red-800 rounded-tl-xs'
+                      : msg.abstained
+                      ? 'bg-amber-50/70 border border-amber-200 text-amber-900 rounded-tl-xs'
+                      : 'bg-white border border-slate-200 text-slate-800 rounded-tl-xs'
+                  }`}
+                >
+                  {/* Evidence Level Badge */}
+                  {msg.sender === 'assistant' && !msg.error && msg.evidenceLevel && (
+                    <div className="mb-2">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          msg.evidenceLevel === 'strong'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : msg.evidenceLevel === 'limited'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}
+                      >
+                        {msg.evidenceLevel === 'strong' ? (
+                          <CheckCircle2 size={10} />
                         ) : (
+                          <AlertTriangle size={10} />
+                        )}
+                        {msg.evidenceLevel === 'strong'
+                          ? 'Strong Evidence'
+                          : msg.evidenceLevel === 'limited'
+                          ? 'Limited Evidence'
+                          : 'Insufficient Evidence'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Abstention Banner if applicable */}
+                  {msg.abstained && (
+                    <div className="flex items-center gap-1.5 text-amber-700 font-semibold mb-2 pb-2 border-b border-amber-200/60">
+                      <AlertTriangle size={14} />
+                      <span>{msg.abstentionReason || 'Insufficient Evidence / Access Restricted'}</span>
+                    </div>
+                  )}
+
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                  {/* Inline Citations & Diagnostics Bar */}
+                  {msg.sender === 'assistant' && !msg.error && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {msg.citations && msg.citations.length > 0 ? (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => handleThumbsUp(msg)}
-                              className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                              title="Helpful response"
-                            >
-                              <ThumbsUp size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenFeedbackModal(msg)}
-                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Report inaccuracies or issues"
-                            >
-                              <ThumbsDown size={12} />
-                            </button>
+                            <span className="text-slate-400 font-medium">Sources:</span>
+                            {msg.citations.map((c, i) => (
+                              <div key={i} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 rounded px-1.5 py-0.5">
+                                <button
+                                  onClick={() => handleOpenDrawer(msg)}
+                                  className="text-indigo-700 font-medium flex items-center gap-1 cursor-pointer hover:underline"
+                                  title={`View passage quote: ${c.document_title} (${c.location})`}
+                                >
+                                  <FileText size={11} />
+                                  <span>{c.document_title}</span>
+                                  <span className="text-indigo-400 font-semibold">({c.location})</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAddBookmark(c)}
+                                  className="text-amber-500 hover:text-amber-600 p-0.5 rounded hover:bg-amber-100/60 transition-colors"
+                                  title="Bookmark this citation snippet"
+                                >
+                                  <Bookmark size={11} />
+                                </button>
+                              </div>
+                            ))}
                           </>
+                        ) : (
+                          <span className="text-slate-400 italic">No source documents cited</span>
                         )}
                       </div>
 
-                      {((msg.citations && msg.citations.length > 0) || msg.evidenceDiagnostics) && (
-                        <button
-                          onClick={() => handleOpenDrawer(msg)}
-                          className="text-indigo-600 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
-                        >
-                          Details <ExternalLink size={10} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3 text-slate-400 ml-auto">
+                        {msg.executionTimeMs && (
+                          <span className="flex items-center gap-1" title="Generation latency">
+                            <Clock size={11} />
+                            {msg.executionTimeMs.toFixed(0)}ms
+                          </span>
+                        )}
+                        {msg.retrievedChunks && (
+                          <span
+                            className="flex items-center gap-1"
+                            title="Retrieved candidate chunks"
+                          >
+                            <Layers size={11} />
+                            {msg.retrievedChunks.length} passages
+                          </span>
+                        )}
+                        {/* Response Feedback Buttons */}
+                        <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
+                          {msg.feedbackGiven ? (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
+                                msg.feedbackGiven === 'positive'
+                                  ? 'text-emerald-600'
+                                  : 'text-rose-600'
+                              }`}
+                            >
+                              {msg.feedbackGiven === 'positive' ? (
+                                <>
+                                  <ThumbsUp size={11} className="fill-emerald-100" />
+                                  <span>Helpful</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ThumbsDown size={11} className="fill-rose-100" />
+                                  <span>Reported</span>
+                                </>
+                              )}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleThumbsUp(msg)}
+                                className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
+                                title="Helpful response"
+                              >
+                                <ThumbsUp size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFeedbackModal(msg)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="Report inaccuracies or issues"
+                              >
+                                <ThumbsDown size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+
+                        {((msg.citations && msg.citations.length > 0) || msg.evidenceDiagnostics) && (
+                          <button
+                            onClick={() => handleOpenDrawer(msg)}
+                            className="text-indigo-600 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                          >
+                            Details <ExternalLink size={10} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 px-1">{msg.timestamp}</span>
               </div>
-              <span className="text-[10px] text-slate-400 mt-1 px-1">{msg.timestamp}</span>
+            ))
+          )}
+
+          {isLoading && (
+            <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
+              <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <span>Retrieving authorized passages and generating grounded response...</span>
             </div>
-          ))
-        )}
+          )}
+        </div>
 
-        {isLoading && (
-          <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
-            <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <span>Retrieving authorized passages and generating grounded response...</span>
-          </div>
-        )}
-      </div>
-
-      {/* Query Input Form */}
-      <div className="mt-4 pt-2">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="relative flex items-center bg-white border border-slate-300 rounded-xl shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all"
-        >
-          <input
-            type="text"
-            value={inputQuery}
-            onChange={(e) => setInputQuery(e.target.value)}
-            placeholder="Ask a question about internal procedures, runbooks, or policies..."
-            className="w-full px-4 py-3 text-xs bg-transparent focus:outline-hidden text-slate-800 placeholder-slate-400"
-            disabled={isLoading}
-          />
-          <div className="pr-2 flex items-center gap-1">
-            {messages.length > 0 && (
+        {/* Query Input Form */}
+        <div className="mt-4 pt-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="relative flex items-center bg-white border border-slate-300 rounded-xl shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all"
+          >
+            <input
+              type="text"
+              value={inputQuery}
+              onChange={(e) => setInputQuery(e.target.value)}
+              placeholder="Ask a question about internal procedures, runbooks, or policies..."
+              className="w-full px-4 py-3 text-xs bg-transparent focus:outline-hidden text-slate-800 placeholder-slate-400"
+              disabled={isLoading}
+            />
+            <div className="pr-2 flex items-center gap-1">
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleNewThread}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="New Conversation (Clean State)"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              )}
               <button
-                type="button"
-                onClick={() => setMessages([])}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Reset conversation"
+                type="submit"
+                disabled={isLoading || !inputQuery.trim()}
+                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                title="Submit Query"
               >
-                <RefreshCw size={14} />
+                <Send size={14} />
               </button>
-            )}
-            <button
-              type="submit"
-              disabled={isLoading || !inputQuery.trim()}
-              className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-              title="Submit Query"
-            >
-              <Send size={14} />
-            </button>
-          </div>
-        </form>
-        <p className="text-[11px] text-center text-slate-400 mt-2">
-          Grounded Generation: All responses are verified against PostgreSQL RBAC and citation
-          coordinates.
-        </p>
+            </div>
+          </form>
+          <p className="text-[11px] text-center text-slate-400 mt-2">
+            Grounded Generation: All responses are verified against PostgreSQL RBAC and citation
+            coordinates.
+          </p>
+        </div>
+
+        {/* Slide-out Citation Drawer */}
+        <CitationDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          citations={selectedCitations}
+          retrievedChunks={selectedChunks}
+          queryText={selectedQuery}
+          evidenceDiagnostics={selectedEvidenceDiagnostics}
+          evidenceLevel={selectedEvidenceLevel}
+        />
+
+        {/* Negative Feedback Modal */}
+        <FeedbackModal
+          isOpen={isFeedbackModalOpen}
+          onClose={() => setIsFeedbackModalOpen(false)}
+          message={feedbackMessage}
+          onFeedbackSubmitted={handleFeedbackSubmitted}
+        />
+
+        {/* Bookmarks Modal (Saved Snippets) */}
+        <BookmarksModal
+          isOpen={isBookmarksModalOpen}
+          onClose={() => setIsBookmarksModalOpen(false)}
+          bookmarks={bookmarks}
+          onDeleteBookmark={handleDeleteBookmark}
+        />
+
+        {/* Add Bookmark Modal */}
+        <AddBookmarkModal
+          isOpen={isAddBookmarkModalOpen}
+          onClose={() => setIsAddBookmarkModalOpen(false)}
+          citation={bookmarkCitation}
+          onSaveBookmark={handleSaveBookmark}
+        />
       </div>
-
-      {/* Slide-out Citation Drawer */}
-      <CitationDrawer
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        citations={selectedCitations}
-        retrievedChunks={selectedChunks}
-        queryText={selectedQuery}
-        evidenceDiagnostics={selectedEvidenceDiagnostics}
-        evidenceLevel={selectedEvidenceLevel}
-      />
-
-      {/* Negative Feedback Modal */}
-      <FeedbackModal
-        isOpen={isFeedbackModalOpen}
-        onClose={() => setIsFeedbackModalOpen(false)}
-        message={feedbackMessage}
-        onFeedbackSubmitted={handleFeedbackSubmitted}
-      />
     </div>
   );
 };

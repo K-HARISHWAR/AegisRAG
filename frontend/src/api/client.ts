@@ -14,6 +14,14 @@ import {
   FeedbackItem,
   FeedbackStats,
   SystemHealth,
+  ThreadBookmark,
+  ThreadBookmarkCreateRequest,
+  ThreadCreateRequest,
+  ThreadDetails,
+  ThreadMessage,
+  ThreadMessageCreateRequest,
+  ThreadSummary,
+  ThreadUpdateRequest,
   User,
 } from '../types';
 
@@ -217,6 +225,62 @@ export const api = {
       return request<FeedbackItem>(`/api/v1/feedback/${feedbackId}/review`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
+      });
+    },
+  },
+
+  // Conversation Workspaces & Controlled Memory (Phase 15)
+  threads: {
+    async create(payload?: ThreadCreateRequest): Promise<ThreadSummary> {
+      return request<ThreadSummary>('/api/v1/threads', {
+        method: 'POST',
+        body: payload ? JSON.stringify(payload) : JSON.stringify({}),
+      });
+    },
+
+    async list(includeArchived: boolean = false, limit: number = 50, offset: number = 0): Promise<ThreadSummary[]> {
+      const q = new URLSearchParams();
+      if (includeArchived) q.set('include_archived', 'true');
+      if (limit) q.set('limit', String(limit));
+      if (offset) q.set('offset', String(offset));
+      const queryString = q.toString() ? `?${q.toString()}` : '';
+      return request<ThreadSummary[]>(`/api/v1/threads${queryString}`);
+    },
+
+    async get(threadId: string): Promise<ThreadDetails> {
+      return request<ThreadDetails>(`/api/v1/threads/${threadId}`);
+    },
+
+    async update(threadId: string, payload: ThreadUpdateRequest): Promise<ThreadSummary> {
+      return request<ThreadSummary>(`/api/v1/threads/${threadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async delete(threadId: string): Promise<{ status: string; thread_id: string }> {
+      return request<{ status: string; thread_id: string }>(`/api/v1/threads/${threadId}`, {
+        method: 'DELETE',
+      });
+    },
+
+    async sendMessage(threadId: string, payload: ThreadMessageCreateRequest): Promise<ThreadMessage> {
+      return request<ThreadMessage>(`/api/v1/threads/${threadId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async addBookmark(threadId: string, payload: ThreadBookmarkCreateRequest): Promise<ThreadBookmark> {
+      return request<ThreadBookmark>(`/api/v1/threads/${threadId}/bookmarks`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async deleteBookmark(bookmarkId: string): Promise<{ status: string; bookmark_id: string }> {
+      return request<{ status: string; bookmark_id: string }>(`/api/v1/threads/bookmarks/${bookmarkId}`, {
+        method: 'DELETE',
       });
     },
   },

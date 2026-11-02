@@ -8,6 +8,7 @@ from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.audit import AuditEvent
 from app.models.feedback import Feedback
+from app.models.thread import Thread, ThreadMessage, ThreadBookmark
 
 __all__ = [
     "Base",
@@ -21,4 +22,7 @@ __all__ = [
     "DocumentGrant",
     "AuditEvent",
     "Feedback",
+    "Thread",
+    "ThreadMessage",
+    "ThreadBookmark",
 ]

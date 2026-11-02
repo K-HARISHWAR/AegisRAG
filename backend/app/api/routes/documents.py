@@ -733,6 +733,83 @@ async def create_document_grant(
     return DocumentGrantRead.model_validate(grant)
 
 
+@router.delete(
+    "/{document_id}/grants/{grant_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Revoke document access grant",
+    description="Revokes an explicit grant for a document. User must own the document, manage the department, or be an admin.",
+)
+async def revoke_document_grant(
+    document_id: uuid.UUID,
+    grant_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Dict[str, Any]:
+    """Revoke an explicit document grant."""
+    ip_address = request.client.host if request.client else None
+    stmt = (
+        select(Document)
+        .options(selectinload(Document.grants))
+        .where(Document.id == document_id)
+    )
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if not document or document.status == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if not can_manage_grants(current_user, document):
+        await log_audit_event(
+            db=db,
+            actor_user_id=current_user.id,
+            action="revoke_grant",
+            outcome="deny",
+            resource_id=str(grant_id),
+            resource_type="grant",
+            ip_address=ip_address,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to revoke access grants for this document",
+        )
+
+    grant_stmt = select(DocumentGrant).where(
+        DocumentGrant.id == grant_id,
+        DocumentGrant.document_id == document_id,
+    )
+    grant_res = await db.execute(grant_stmt)
+    grant = grant_res.scalars().first()
+
+    if not grant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grant not found",
+        )
+
+    await db.delete(grant)
+    await db.commit()
+
+    await log_audit_event(
+        db=db,
+        actor_user_id=current_user.id,
+        action="revoke_grant",
+        outcome="allow",
+        resource_id=str(grant_id),
+        resource_type="grant",
+        details={
+            "document_id": str(document.id),
+            "grantee_user_id": str(grant.grantee_user_id) if grant.grantee_user_id else None,
+        },
+        ip_address=ip_address,
+    )
+
+    return {"status": "revoked", "grant_id": str(grant_id)}
+
+
 @router.post(
     "/{document_id}/rollback",
     response_model=DocumentRead,
