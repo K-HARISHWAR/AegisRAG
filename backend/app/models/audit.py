@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, GUID, utc_now
@@ -44,6 +44,25 @@ class AuditEvent(Base):
     outcome: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
+        index=True,
+    )
+    policy_reason_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+    sequence_number: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        index=True,
+    )
+    previous_event_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    event_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
         index=True,
     )
     details: Mapped[str | None] = mapped_column(

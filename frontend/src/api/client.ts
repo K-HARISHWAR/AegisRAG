@@ -4,6 +4,9 @@
  */
 
 import {
+  AccessReviewReport,
+  AuditExportResponse,
+  AuditIntegrityReport,
   AuthResponse,
   AuditEvent,
   ChatQueryResponse,
@@ -14,6 +17,7 @@ import {
   FeedbackCreateRequest,
   FeedbackItem,
   FeedbackStats,
+  PolicyDecisionExplanation,
   SystemHealth,
   ThreadBookmark,
   ThreadBookmarkCreateRequest,
@@ -189,16 +193,45 @@ export const api = {
         body: formData,
       });
     },
+
+    async explainAccess(id: string): Promise<PolicyDecisionExplanation> {
+      return request<PolicyDecisionExplanation>(`/api/v1/documents/${id}/explain-access`);
+    },
   },
 
-  // Administrative Endpoints
+  // Administrative Endpoints (Phase 17 Governance & Audit)
   admin: {
     async listUsers(): Promise<User[]> {
       return request<User[]>('/api/v1/admin/users');
     },
 
-    async listAuditLogs(limit: number = 50, offset: number = 0): Promise<AuditEvent[]> {
-      return request<AuditEvent[]>(`/api/v1/admin/audit-logs?limit=${limit}&offset=${offset}`);
+    async listAuditLogs(params?: {
+      limit?: number;
+      offset?: number;
+      action?: string;
+      outcome?: string;
+      policy_reason_code?: string;
+    }): Promise<AuditEvent[]> {
+      const q = new URLSearchParams();
+      if (params?.limit !== undefined) q.set('limit', String(params.limit));
+      else q.set('limit', '50');
+      if (params?.offset !== undefined) q.set('offset', String(params.offset));
+      if (params?.action) q.set('action', params.action);
+      if (params?.outcome) q.set('outcome', params.outcome);
+      if (params?.policy_reason_code) q.set('policy_reason_code', params.policy_reason_code);
+      return request<AuditEvent[]>(`/api/v1/admin/audit-logs?${q.toString()}`);
+    },
+
+    async verifyAuditIntegrity(): Promise<AuditIntegrityReport> {
+      return request<AuditIntegrityReport>('/api/v1/admin/audit/integrity');
+    },
+
+    async getAccessReview(): Promise<AccessReviewReport> {
+      return request<AccessReviewReport>('/api/v1/admin/access-review');
+    },
+
+    async exportAudit(limit: number = 500, offset: number = 0): Promise<AuditExportResponse> {
+      return request<AuditExportResponse>(`/api/v1/admin/audit/export?limit=${limit}&offset=${offset}`);
     },
   },
 

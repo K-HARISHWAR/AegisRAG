@@ -5,9 +5,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.policy_codes import PolicyReasonCode
 from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.user import User
+from app.schemas.audit import PolicyDecisionExplanation
 
 logger = get_logger(__name__)
 
@@ -173,3 +175,72 @@ async def get_authorized_document_ids(
     authorized_ids.update(grant_res.scalars().all())
 
     return list(authorized_ids)
+
+
+async def explain_denial(
+    user: User,
+    document: Document,
+    db: AsyncSession,
+    require_active: bool = False,
+) -> PolicyDecisionExplanation:
+    """Evaluate access and produce a safe, sanitized policy explanation without leaking protected content."""
+    res_id = str(document.id)
+
+    if not user.is_active:
+        return PolicyDecisionExplanation(
+            allowed=False,
+            policy_reason_code=PolicyReasonCode.AUTH_FORBIDDEN,
+            safe_explanation="Access denied. User account is inactive or disabled.",
+            resource_id=res_id,
+        )
+
+    if document.status == "deleted" or document.lifecycle_state == "deleted":
+        return PolicyDecisionExplanation(
+            allowed=False,
+            policy_reason_code=PolicyReasonCode.LIFECYCLE_DELETED_DENIED,
+            safe_explanation="Access denied by lifecycle policy. The requested resource has been deleted.",
+            resource_id=res_id,
+        )
+
+    if require_active and document.lifecycle_state != "active":
+        return PolicyDecisionExplanation(
+            allowed=False,
+            policy_reason_code=PolicyReasonCode.LIFECYCLE_SUPERSEDED_DENIED,
+            safe_explanation="Access denied by lifecycle policy. The requested document version is not active.",
+            resource_id=res_id,
+        )
+
+    # Check read permission
+    can_read = await can_read_document(user, document, db, require_active=require_active)
+    if can_read:
+        return PolicyDecisionExplanation(
+            allowed=True,
+            policy_reason_code=PolicyReasonCode.DOC_READ_PERMITTED,
+            safe_explanation="Access granted based on verified authorization policy.",
+            resource_id=res_id,
+        )
+
+    # Determine safe denial reason code
+    if user.department_id is None or user.department_id != document.department_id:
+        return PolicyDecisionExplanation(
+            allowed=False,
+            policy_reason_code=PolicyReasonCode.DEPT_MISMATCH_DENIED,
+            safe_explanation="Access denied by department boundary policy. This resource belongs to another department.",
+            resource_id=res_id,
+        )
+
+    if document.is_confidential and not user.is_manager and not user.is_admin:
+        return PolicyDecisionExplanation(
+            allowed=False,
+            policy_reason_code=PolicyReasonCode.CONFIDENTIAL_EMPLOYEE_DENIED,
+            safe_explanation="Access denied by confidentiality policy. Resource is restricted to department managers or users with explicit grants.",
+            resource_id=res_id,
+        )
+
+    return PolicyDecisionExplanation(
+        allowed=False,
+        policy_reason_code=PolicyReasonCode.DOC_ACCESS_DENIED,
+        safe_explanation="Access denied by security policy. Insufficient authorization for requested resource.",
+        resource_id=res_id,
+    )
+

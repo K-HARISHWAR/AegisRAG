@@ -15,16 +15,33 @@ import {
   Check,
   X,
   MessageSquare,
+  Download,
+  Key,
+  ShieldAlert,
+  Filter,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { AuditEvent, FeedbackItem, FeedbackStats, User } from '../types';
+import {
+  AccessReviewReport,
+  AuditEvent,
+  AuditIntegrityReport,
+  FeedbackItem,
+  FeedbackStats,
+  User,
+} from '../types';
 
 export const AdminPage: React.FC = () => {
   const { isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'audit' | 'quality'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'audit' | 'access_review' | 'quality'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEvent[]>([]);
+  const [integrityReport, setIntegrityReport] = useState<AuditIntegrityReport | null>(null);
+  const [isVerifyingIntegrity, setIsVerifyingIntegrity] = useState<boolean>(false);
+  const [isExportingAudit, setIsExportingAudit] = useState<boolean>(false);
+  const [accessReview, setAccessReview] = useState<AccessReviewReport | null>(null);
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('');
+  const [auditOutcomeFilter, setAuditOutcomeFilter] = useState<string>('');
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null);
   const [feedbackFilter, setFeedbackFilter] = useState<{ rating?: string; status?: string }>({});
@@ -52,10 +69,63 @@ export const AdminPage: React.FC = () => {
   const fetchAuditLogs = async () => {
     setLoading(true);
     try {
-      const data = await api.admin.listAuditLogs(100, 0);
-      setAuditLogs(data);
+      const [logs, integrity] = await Promise.all([
+        api.admin.listAuditLogs({
+          limit: 100,
+          offset: 0,
+          action: auditActionFilter || undefined,
+          outcome: auditOutcomeFilter || undefined,
+        }),
+        api.admin.verifyAuditIntegrity().catch(() => null),
+      ]);
+      setAuditLogs(logs);
+      if (integrity) setIntegrityReport(integrity);
     } catch (err: any) {
       setError(err?.message || 'Failed to fetch security audit logs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyIntegrity = async () => {
+    setIsVerifyingIntegrity(true);
+    try {
+      const res = await api.admin.verifyAuditIntegrity();
+      setIntegrityReport(res);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to verify audit hash integrity');
+    } finally {
+      setIsVerifyingIntegrity(false);
+    }
+  };
+
+  const handleExportAudit = async () => {
+    setIsExportingAudit(true);
+    try {
+      const data = await api.admin.exportAudit(500, 0);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `aegisrag-audit-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to export audit log');
+    } finally {
+      setIsExportingAudit(false);
+    }
+  };
+
+  const fetchAccessReview = async () => {
+    setLoading(true);
+    try {
+      const data = await api.admin.getAccessReview();
+      setAccessReview(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to fetch access review report');
     } finally {
       setLoading(false);
     }
@@ -87,10 +157,12 @@ export const AdminPage: React.FC = () => {
       fetchUsers();
     } else if (activeTab === 'audit') {
       fetchAuditLogs();
+    } else if (activeTab === 'access_review') {
+      fetchAccessReview();
     } else if (activeTab === 'quality') {
       fetchQualityData();
     }
-  }, [isAdmin, activeTab, feedbackFilter]);
+  }, [isAdmin, activeTab, feedbackFilter, auditActionFilter, auditOutcomeFilter]);
 
   const handleOpenTriage = (item: FeedbackItem) => {
     setTriageItem(item);
@@ -251,7 +323,18 @@ export const AdminPage: React.FC = () => {
             }`}
           >
             <ShieldCheck size={16} />
-            <span>Security Audit Log ({auditLogs.length})</span>
+            <span>Audit Trail & Tamper Chain ({auditLogs.length})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('access_review')}
+            className={`py-3.5 border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'access_review'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Key size={16} />
+            <span>Access Review & Governance</span>
           </button>
           <button
             onClick={() => setActiveTab('quality')}
@@ -329,60 +412,356 @@ export const AdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Audit Logs */}
+        {/* Tab 2: Audit Logs & Cryptographic Tamper Chain */}
         {activeTab === 'audit' && (
-          <div className="p-6">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4">Action</th>
-                  <th className="py-3 px-3">Outcome</th>
-                  <th className="py-3 px-3">Actor ID</th>
-                  <th className="py-3 px-3">Details / Resource</th>
-                  <th className="py-3 px-3">Request ID</th>
-                  <th className="py-3 px-4 text-right">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700 font-mono text-[11px]">
-                {auditLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-900 font-sans">
-                      {log.action}
-                    </td>
-                    <td className="py-3 px-3">{getOutcomeBadge(log.outcome)}</td>
-                    <td
-                      className="py-3 px-3 text-slate-500 truncate max-w-[120px]"
-                      title={log.actor_user_id || 'System'}
-                    >
-                      {log.actor_user_id ? `${log.actor_user_id.slice(0, 8)}...` : 'Anonymous'}
-                    </td>
-                    <td
-                      className="py-3 px-3 text-slate-600 font-sans truncate max-w-[200px]"
-                      title={log.details || log.resource_id || ''}
-                    >
-                      {log.details || log.resource_id || '—'}
-                    </td>
-                    <td
-                      className="py-3 px-3 text-slate-400 truncate max-w-[100px]"
-                      title={log.request_id || ''}
-                    >
-                      {log.request_id ? `${log.request_id.slice(0, 8)}...` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-right text-slate-500">
-                      {new Date(log.timestamp).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                      })}
-                    </td>
+          <div className="p-6 space-y-6">
+            {/* Hash Chain Integrity Status Card */}
+            <div
+              className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                integrityReport?.is_valid === false
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`p-2.5 rounded-lg ${
+                    integrityReport?.is_valid === false
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {integrityReport?.is_valid === false ? (
+                    <ShieldAlert size={22} />
+                  ) : (
+                    <ShieldCheck size={22} />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider">
+                      {integrityReport?.is_valid === false
+                        ? 'Audit Trail Tampering Detected!'
+                        : 'Cryptographic Hash Chain: Verified'}
+                    </h4>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/80 border">
+                      SHA-256
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {integrityReport?.is_valid === false
+                      ? `Alert: ${integrityReport.tampered_event_ids.length} records have payload or sequence mutations.`
+                      : `All ${integrityReport?.total_events_checked ?? auditLogs.length} audit trail events are cryptographically chained and tamper-free.`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleVerifyIntegrity}
+                  disabled={isVerifyingIntegrity}
+                  className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={isVerifyingIntegrity ? 'animate-spin' : ''} />
+                  <span>Verify Chain</span>
+                </button>
+                <button
+                  onClick={handleExportAudit}
+                  disabled={isExportingAudit}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Download size={12} />
+                  <span>{isExportingAudit ? 'Exporting...' : 'Export Audit (JSON)'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 text-slate-500 font-medium">
+                  <Filter size={13} />
+                  <span>Filters:</span>
+                </div>
+                <select
+                  value={auditActionFilter}
+                  onChange={(e) => setAuditActionFilter(e.target.value)}
+                  className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs text-slate-700 focus:outline-hidden"
+                >
+                  <option value="">All Actions</option>
+                  <option value="login">User Login</option>
+                  <option value="create_grant">Create Grant</option>
+                  <option value="revoke_grant">Revoke Grant</option>
+                  <option value="rag_generation">RAG Generation</option>
+                  <option value="retrieval_query">Retrieval Query</option>
+                  <option value="upload_document">Upload Document</option>
+                  <option value="delete_document">Delete Document</option>
+                  <option value="export_audit_trail">Export Audit</option>
+                </select>
+
+                <select
+                  value={auditOutcomeFilter}
+                  onChange={(e) => setAuditOutcomeFilter(e.target.value)}
+                  className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs text-slate-700 focus:outline-hidden"
+                >
+                  <option value="">All Outcomes</option>
+                  <option value="allow">Allow (Permitted)</option>
+                  <option value="deny">Deny (Rejected)</option>
+                  <option value="error">Error</option>
+                </select>
+              </div>
+
+              <div className="text-[11px] text-slate-500 font-mono">
+                Showing {auditLogs.length} events
+              </div>
+            </div>
+
+            {/* Audit Log Table */}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3">Seq / Chain Hash</th>
+                    <th className="py-3 px-4">Action & Reason</th>
+                    <th className="py-3 px-3">Outcome</th>
+                    <th className="py-3 px-3">Actor ID</th>
+                    <th className="py-3 px-3">Details / Resource</th>
+                    <th className="py-3 px-3">Request ID</th>
+                    <th className="py-3 px-4 text-right">Timestamp</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 font-mono text-[11px]">
+                  {auditLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                          <span>#{log.sequence_number ?? '1'}</span>
+                          <span
+                            className="text-[10px] text-slate-400 truncate max-w-[80px]"
+                            title={`Event Hash: ${log.event_hash || 'Unchained'}`}
+                          >
+                            {log.event_hash ? `${log.event_hash.slice(0, 8)}...` : '—'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-sans">
+                        <div className="font-semibold text-slate-900">{log.action}</div>
+                        {log.policy_reason_code && (
+                          <span className="inline-block px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded text-[9px] font-mono mt-0.5">
+                            {log.policy_reason_code}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-sans">{getOutcomeBadge(log.outcome)}</td>
+                      <td
+                        className="py-3 px-3 text-slate-500 truncate max-w-[120px]"
+                        title={log.actor_user_id || 'System'}
+                      >
+                        {log.actor_user_id ? `${log.actor_user_id.slice(0, 8)}...` : 'System'}
+                      </td>
+                      <td
+                        className="py-3 px-3 text-slate-600 font-sans truncate max-w-[200px]"
+                        title={log.details || log.resource_id || ''}
+                      >
+                        {log.details || log.resource_id || '—'}
+                      </td>
+                      <td
+                        className="py-3 px-3 text-slate-400 truncate max-w-[100px]"
+                        title={log.request_id || ''}
+                      >
+                        {log.request_id ? `${log.request_id.slice(0, 8)}...` : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right text-slate-500 font-sans">
+                        {new Date(log.timestamp).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                  {auditLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 font-sans text-xs">
+                        No audit events match the specified filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        {/* Tab 3: Quality & Evaluation Dashboard (Phase 14) */}
+        {/* Tab 3: Access Review & Governance (Phase 17) */}
+        {activeTab === 'access_review' && (
+          <div className="p-6 space-y-6">
+            {/* Header info */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">
+                  Governance Authorization Matrix
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Inspect role hierarchies, active explicit document grants, and policy enforcement denials.
+                </p>
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Generated: {accessReview ? new Date(accessReview.generated_at).toLocaleTimeString() : '—'}
+              </div>
+            </div>
+
+            {/* Privilege Anomalies Alert */}
+            {accessReview && accessReview.privilege_anomalies.length > 0 && (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                  <span>Privilege Anomalies Detected ({accessReview.privilege_anomalies.length})</span>
+                </div>
+                <ul className="list-disc list-inside text-[11px] text-amber-800 space-y-0.5 pl-1">
+                  {accessReview.privilege_anomalies.map((anom, idx) => (
+                    <li key={idx}>{anom}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Roles Breakdown */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 flex items-center gap-1.5">
+                <Users size={14} className="text-indigo-600" />
+                <span>Role Hierarchy & Permissions</span>
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {accessReview?.roles_summary.map((r) => (
+                  <div key={r.role_id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 capitalize text-sm">{r.role_name}</span>
+                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded text-[11px] border border-indigo-200">
+                        {r.users_count} users
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">{r.description || 'System role'}</p>
+                    <div className="pt-2 border-t border-slate-200/60 space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-slate-400">Granted Privileges</div>
+                      <div className="flex flex-wrap gap-1">
+                        {r.permissions.map((p, pIdx) => (
+                          <span
+                            key={pIdx}
+                            className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-slate-200 text-slate-600"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Explicit Grants Matrix */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 flex items-center gap-1.5">
+                <Key size={14} className="text-indigo-600" />
+                <span>Active Explicit Document Grants ({accessReview?.explicit_grants.length || 0})</span>
+              </h4>
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                      <th className="py-2.5 px-3">Document Title</th>
+                      <th className="py-2.5 px-3">Department</th>
+                      <th className="py-2.5 px-3">Grantee Type</th>
+                      <th className="py-2.5 px-3">Grantee Identifier</th>
+                      <th className="py-2.5 px-3">Permission</th>
+                      <th className="py-2.5 px-3 text-right">Granted Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {accessReview?.explicit_grants.map((g) => (
+                      <tr key={g.grant_id} className="hover:bg-slate-50/60">
+                        <td className="py-3 px-3 font-medium text-slate-900">{g.document_title}</td>
+                        <td className="py-3 px-3 text-slate-500">{g.department_name}</td>
+                        <td className="py-3 px-3 uppercase text-[10px] font-mono font-semibold text-slate-500">
+                          {g.grantee_type}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px] text-slate-800">{g.grantee_label}</td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-[10px] font-semibold border border-emerald-200">
+                            {g.permission.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right text-slate-500">
+                          {new Date(g.created_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                    {(!accessReview?.explicit_grants || accessReview.explicit_grants.length === 0) && (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          No explicit document grants currently active.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Recent Policy Denials */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 flex items-center gap-1.5">
+                <ShieldAlert size={14} className="text-rose-600" />
+                <span>Recent Policy Denials Telemetry</span>
+              </h4>
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                      <th className="py-2.5 px-3">Timestamp</th>
+                      <th className="py-2.5 px-3">Action</th>
+                      <th className="py-2.5 px-3">Reason Code</th>
+                      <th className="py-2.5 px-3">Actor ID</th>
+                      <th className="py-2.5 px-3">Safe Explanation</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {accessReview?.recent_denials.map((d, dIdx) => (
+                      <tr key={dIdx} className="hover:bg-slate-50/60">
+                        <td className="py-3 px-3 text-slate-500">
+                          {new Date(d.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="py-3 px-3 font-semibold text-slate-900">{d.action}</td>
+                        <td className="py-3 px-3 font-mono text-[10px] text-rose-700">
+                          {d.policy_reason_code || 'DENIED'}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px] text-slate-500">
+                          {d.actor_user_id ? `${d.actor_user_id.slice(0, 8)}...` : 'Anonymous'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-600">{d.safe_explanation}</td>
+                      </tr>
+                    ))}
+                    {(!accessReview?.recent_denials || accessReview.recent_denials.length === 0) && (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-400">
+                          No recent policy denials recorded.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Quality & Evaluation Dashboard (Phase 14) */}
         {activeTab === 'quality' && (
           <div className="p-6 space-y-6">
             {/* KPI Metric Cards */}

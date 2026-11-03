@@ -15,7 +15,16 @@ from app.schemas.document import (
     ExtractionQualityReport,
     DocumentExtractionPreviewResponse,
 )
-from app.schemas.audit import AuditEventRead
+from app.schemas.audit import (
+    AuditEventRead,
+    AuditIntegrityReport,
+    AccessReviewReport,
+    RoleReviewItem,
+    GrantReviewItem,
+    DenialReviewItem,
+    AuditExportResponse,
+    PolicyDecisionExplanation,
+)
 from app.schemas.chunk import Chunk, DocumentChunkRead, SearchResult
 from app.schemas.generation import ChatQueryRequest, ChatQueryResponse, Citation
 from app.schemas.retrieval import RetrievalQuery, RetrievalResponse, RetrievedChunk
@@ -56,6 +65,13 @@ __all__ = [
     "ExtractionQualityReport",
     "DocumentExtractionPreviewResponse",
     "AuditEventRead",
+    "AuditIntegrityReport",
+    "AccessReviewReport",
+    "RoleReviewItem",
+    "GrantReviewItem",
+    "DenialReviewItem",
+    "AuditExportResponse",
+    "PolicyDecisionExplanation",
     "Chunk",
     "SearchResult",
     "DocumentChunkRead",

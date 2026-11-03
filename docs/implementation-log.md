@@ -618,7 +618,68 @@ This log tracks architectural decisions, completed phases, verification commands
   - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
   - `npm --prefix frontend test -- --run` -> 8/8 passed in 19.00s.
   - `npm --prefix frontend run build` -> Production bundle compiled cleanly in 6.72s with zero TypeScript errors.
-- **Next Step**: Phase 17 — Advanced Observability, Audit Hardening, and Production Scalability.
+- **Next Step**: Phase 17 — Governance, Audit Trail, and Policy Explanations.
+
+---
+
+## Phase 17: Governance, Audit Trail, and Policy Explanations
+- **Date**: 2026-11-03
+- **Completed Deliverables**:
+  - `backend/app/core/policy_codes.py`:
+    - Defined standardized `PolicyReasonCode` constants covering authentication, RBAC, department isolation, confidentiality, explicit grants, document lifecycle, RAG queries, and governance audit events.
+  - `backend/app/models/audit.py`:
+    - Updated `AuditEvent` model with cryptographic hash-chaining and governance fields: `policy_reason_code` (indexed string), `sequence_number` (indexed monotonic BigInteger), `previous_event_hash` (string SHA-256 link), and `event_hash` (indexed string SHA-256 digest).
+  - `backend/alembic/versions/0005_governance_audit_hash_chain.py`:
+    - Alembic migration adding `policy_reason_code`, `sequence_number`, `previous_event_hash`, and `event_hash` to `audit_events` table with monotonic sequence numbering and backfilled hash chain.
+    - Applied cleanly via `alembic upgrade head`.
+  - `backend/app/schemas/audit.py` & `backend/app/schemas/__init__.py`:
+    - Updated `AuditEventRead` with hash-chaining telemetry.
+    - Created `AuditIntegrityReport`, `RoleReviewItem`, `GrantReviewItem`, `DenialReviewItem`, `AccessReviewReport`, `AuditExportResponse`, and `PolicyDecisionExplanation`.
+  - `backend/app/services/policy.py`:
+    - Implemented `explain_denial(user, document, db, require_active)`:
+      - Evaluates user authorization against active document policies.
+      - Returns sanitized `PolicyDecisionExplanation` detailing the policy constraint (`DEPT_MISMATCH_DENIED`, `CONFIDENTIAL_EMPLOYEE_DENIED`, `LIFECYCLE_SUPERSEDED_DENIED`, `AUTH_FORBIDDEN`) **without leaking protected document titles, text chunks, or sensitive excerpts**.
+  - `backend/app/services/audit.py`:
+    - **Scrubbing & Redaction Guardrails**: Strict sanitization filtering passwords, bearer tokens, API keys, raw file bytes, and prompt text from audit logs.
+    - **Cryptographic Hash Chaining**: Monotonically increments sequence numbers and chains each new audit event using SHA-256 (`{id}|{seq}|{actor}|{action}|{resource}|{outcome}|{reason}|{timestamp}|{prev_hash}`).
+    - **Tamper Detection**: Implemented `verify_audit_trail_integrity(db)`: walks the cryptographic chain and detects dropped records, altered outcomes, or sequence tampering.
+    - **Access Review Engine**: Implemented `get_access_review(db)`: summarizes role hierarchies, active explicit document grants matrix, recent security denials, and privilege anomaly warnings (e.g. cross-department grants).
+    - **Controlled Export**: Implemented `export_audit_trail(db)`: exports signed audit trail records and self-audits the export event (`AUDIT_LOGS_EXPORTED`).
+  - `backend/app/api/routes/admin.py`:
+    - Enhanced `GET /api/v1/admin/audit-logs` with filters for `action`, `outcome`, `policy_reason_code`, and `actor_user_id`, with automatic self-auditing (`AUDIT_ACCESS_REVIEWED`).
+    - Added `GET /api/v1/admin/audit/integrity`: runs cryptographic hash chain verification.
+    - Added `GET /api/v1/admin/access-review`: returns governance matrix for admins and auditors.
+    - Added `GET /api/v1/admin/audit/export`: controlled export endpoint.
+  - `backend/app/api/routes/documents.py`:
+    - Added `GET /api/v1/documents/{document_id}/explain-access`: non-leaking access explanation endpoint.
+    - Wired `GRANT_CREATED` and `GRANT_REVOKED` policy reason codes into grant actions.
+  - `backend/app/api/routes/auth.py` & `backend/app/services/generation.py` & `backend/app/services/retrieval.py`:
+    - Wired structured policy reason codes into login events (`AUTH_SUCCESS`, `AUTH_INVALID_CREDENTIALS`), RAG queries (`QUERY_EXECUTED`, `QUERY_ABSTAINED`), and post-retrieval revalidations (`DOC_ACCESS_DENIED`).
+  - `backend/tests/test_governance_audit.py`:
+    - 7 comprehensive unit, integration, and security tests:
+      1. `test_grant_and_revoke_produce_audit_events_with_reason_codes`: grant create/revoke produces immutable events with reason codes (`GRANT_CREATED`, `GRANT_REVOKED`).
+      2. `test_unauthorized_user_cannot_view_audit_records`: standard users rejected with 403 Forbidden across all audit and governance endpoints.
+      3. `test_audit_logs_contain_no_excerpts_credentials_or_api_keys`: verifies plaintext passwords, tokens, and excerpts are scrubbed.
+      4. `test_hash_chaining_integrity_verification_detects_tampering`: direct database mutation of audit records is caught by hash verification.
+      5. `test_denial_explanation_leaks_no_restricted_content`: safe explanations explain denials without exposing protected document names or text.
+      6. `test_access_review_and_self_auditing`: access review returns roles, grants, and recent denials, self-auditing the review action.
+      7. `test_controlled_audit_export`: export generates structured export with chain head hash and self-auditing.
+  - `frontend/src/types/index.ts`:
+    - Added `AuditIntegrityReport`, `AccessReviewReport`, `AuditExportResponse`, `PolicyDecisionExplanation`, and updated `AuditEvent`.
+  - `frontend/src/api/client.ts`:
+    - Added `admin.verifyAuditIntegrity()`, `admin.getAccessReview()`, `admin.exportAudit()`, and `documents.explainAccess()`.
+  - `frontend/src/pages/AdminPage.tsx`:
+    - Enhanced "Audit Trail & Tamper Chain" tab with SHA-256 cryptographic verification status badge, "Verify Chain" action, "Export Audit (JSON)" file download, and multi-field filters (action, outcome).
+    - Added "Access Review & Governance" tab displaying Role Hierarchy & Permissions, Active Explicit Document Grants Matrix, Privilege Anomalies alert banner, and Recent Security Policy Denials telemetry.
+- **Verification Commands Run**:
+  - `alembic upgrade head` -> Applied `0005_governance_audit_hash_chain`.
+  - `pytest backend/tests/test_governance_audit.py -v` -> 7/7 passed in 6.23s.
+  - `pytest backend/tests/ -v` -> 125/125 passed in 101.06s.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
+  - `npm --prefix frontend test -- --run` -> 8/8 passed in 15.19s.
+  - `npm --prefix frontend run build` -> Production bundle compiled cleanly in 10.23s with zero TypeScript errors.
+- **Next Step**: Phase 18 — Read-Only Knowledge Workflows.
+
 
 
 

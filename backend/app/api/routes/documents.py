@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_db
+from app.core.policy_codes import PolicyReasonCode
 from app.models.document import Document
 from app.models.grant import DocumentGrant
 from app.models.user import User
+from app.schemas.audit import PolicyDecisionExplanation
 from app.schemas.chunk import DocumentChunkRead
 from app.schemas.document import (
     DocumentContentResponse,
@@ -34,6 +36,7 @@ from app.services.policy import (
     can_manage_grants,
     can_read_document,
     can_upload_document,
+    explain_denial,
     get_authorized_document_ids,
 )
 from app.services.storage import StorageProvider, get_storage_provider
@@ -776,6 +779,7 @@ async def create_document_grant(
             actor_user_id=current_user.id,
             action="create_grant",
             outcome="deny",
+            policy_reason_code=PolicyReasonCode.RBAC_INSUFFICIENT_ROLE,
             resource_id=str(document.id),
             resource_type="grant",
             ip_address=ip_address,
@@ -802,6 +806,7 @@ async def create_document_grant(
         actor_user_id=current_user.id,
         action="create_grant",
         outcome="allow",
+        policy_reason_code=PolicyReasonCode.GRANT_CREATED,
         resource_id=str(grant.id),
         resource_type="grant",
         details={
@@ -850,6 +855,7 @@ async def revoke_document_grant(
             actor_user_id=current_user.id,
             action="revoke_grant",
             outcome="deny",
+            policy_reason_code=PolicyReasonCode.RBAC_INSUFFICIENT_ROLE,
             resource_id=str(grant_id),
             resource_type="grant",
             ip_address=ip_address,
@@ -880,6 +886,7 @@ async def revoke_document_grant(
         actor_user_id=current_user.id,
         action="revoke_grant",
         outcome="allow",
+        policy_reason_code=PolicyReasonCode.GRANT_REVOKED,
         resource_id=str(grant_id),
         resource_type="grant",
         details={
@@ -1035,3 +1042,28 @@ async def get_document_history(
         total_revisions=len(revisions),
         revisions=[DocumentRevisionHistoryItem.model_validate(r) for r in revisions],
     )
+
+
+@router.get(
+    "/{document_id}/explain-access",
+    response_model=PolicyDecisionExplanation,
+    summary="Explain access decision for document",
+    description="Provides a safe, non-leaking policy explanation of the user's access status for this document.",
+)
+async def explain_document_access(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PolicyDecisionExplanation:
+    """Safely explain whether and why the user is permitted or denied access without exposing protected document text."""
+    stmt = select(Document).where(Document.id == document_id)
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if document is None or document.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    decision = await explain_denial(user=current_user, document=document, db=db, require_active=True)
+    return decision
+

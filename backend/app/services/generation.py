@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.policy_codes import PolicyReasonCode
 from app.models.user import User
 from app.schemas.generation import ChatQueryRequest, ChatQueryResponse, Citation
 from app.schemas.retrieval import RetrievalQuery, RetrievedChunk
@@ -167,6 +168,7 @@ async def generate_answer(
             actor_user_id=current_user.id,
             action="rag_generation",
             outcome="allow",
+            policy_reason_code=PolicyReasonCode.QUERY_EXECUTED,
             resource_type="chat",
             details={"type": "greeting", "query": request.query[:80]},
             ip_address=ip_address,
@@ -212,6 +214,7 @@ async def generate_answer(
             actor_user_id=current_user.id,
             action="rag_generation",
             outcome="allow",
+            policy_reason_code=PolicyReasonCode.QUERY_ABSTAINED,
             resource_type="chat",
             details={
                 "abstained": True,
@@ -289,6 +292,7 @@ async def generate_answer(
         actor_user_id=current_user.id,
         action="rag_generation",
         outcome="allow",
+        policy_reason_code=PolicyReasonCode.QUERY_ABSTAINED if is_abstained else PolicyReasonCode.QUERY_EXECUTED,
         resource_id=str(query_id),
         resource_type="chat",
         details={

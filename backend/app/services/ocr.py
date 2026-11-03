@@ -189,3 +189,4 @@ def set_ocr_adapter(adapter: OCRAdapter) -> None:
     """Override global OCR adapter (for testing)."""
     global _global_ocr_adapter
     _global_ocr_adapter = adapter
+

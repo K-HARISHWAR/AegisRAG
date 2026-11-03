@@ -268,10 +268,78 @@ export interface AuditEvent {
   resource_id?: string | null;
   resource_type?: string | null;
   outcome: 'allow' | 'deny' | 'error' | string;
+  policy_reason_code?: string | null;
+  sequence_number?: number | null;
+  previous_event_hash?: string | null;
+  event_hash?: string | null;
   details?: string | null;
   ip_address?: string | null;
   request_id?: string | null;
   timestamp: string;
+}
+
+export interface AuditIntegrityReport {
+  is_valid: boolean;
+  total_events_checked: number;
+  tampered_event_ids: string[];
+  error_details: string[];
+  genesis_hash: string;
+  chain_head_hash?: string | null;
+  verified_at: string;
+}
+
+export interface RoleReviewItem {
+  role_id: string;
+  role_name: string;
+  description?: string | null;
+  users_count: number;
+  permissions: string[];
+}
+
+export interface GrantReviewItem {
+  grant_id: string;
+  document_id: string;
+  document_title: string;
+  department_name: string;
+  grantee_type: 'user' | 'role' | string;
+  grantee_id: string;
+  grantee_label: string;
+  permission: string;
+  created_at: string;
+}
+
+export interface DenialReviewItem {
+  timestamp: string;
+  action: string;
+  actor_user_id?: string | null;
+  policy_reason_code?: string | null;
+  resource_id?: string | null;
+  safe_explanation?: string | null;
+}
+
+export interface AccessReviewReport {
+  roles_summary: RoleReviewItem[];
+  explicit_grants: GrantReviewItem[];
+  recent_denials: DenialReviewItem[];
+  privilege_anomalies: string[];
+  generated_at: string;
+}
+
+export interface AuditExportResponse {
+  export_id: string;
+  exported_at: string;
+  exported_by_user_id: string;
+  total_events: number;
+  chain_head_hash?: string | null;
+  events: AuditEvent[];
+}
+
+export interface PolicyDecisionExplanation {
+  allowed: boolean;
+  policy_reason_code: string;
+  safe_explanation: string;
+  resource_id?: string | null;
+  evaluated_at: string;
 }
 
 export interface SystemHealth {

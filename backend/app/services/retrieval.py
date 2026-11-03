@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.policy_codes import PolicyReasonCode
 from app.models.document import Document
 from app.models.user import User
 from app.schemas.chunk import SearchResult
@@ -373,6 +374,7 @@ async def retrieve_context(
                 actor_user_id=current_user.id,
                 action="post_retrieval_revalidation",
                 outcome="deny",
+                policy_reason_code=PolicyReasonCode.DOC_ACCESS_DENIED,
                 resource_id=str(doc.id),
                 resource_type="document",
                 details={"chunk_id": cand.chunk_id, "channel": channel},
@@ -443,6 +445,7 @@ async def retrieve_context(
         actor_user_id=current_user.id,
         action="retrieval_query",
         outcome="allow",
+        policy_reason_code=PolicyReasonCode.QUERY_EXECUTED,
         resource_type="query",
         details={
             "query_preview": query_params.query[:80],

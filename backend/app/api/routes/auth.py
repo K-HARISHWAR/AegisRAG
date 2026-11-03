@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
+from app.core.policy_codes import PolicyReasonCode
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.schemas.auth import LoginRequest, Token
@@ -46,6 +47,7 @@ async def login(
             db=db,
             action="login",
             outcome="deny",
+            policy_reason_code=PolicyReasonCode.AUTH_INVALID_CREDENTIALS,
             details={"email": credentials.email, "reason": "invalid_credentials"},
             ip_address=ip_address,
         )
@@ -62,6 +64,7 @@ async def login(
             actor_user_id=user.id,
             action="login",
             outcome="deny",
+            policy_reason_code=PolicyReasonCode.AUTH_FORBIDDEN,
             details="inactive_account",
             ip_address=ip_address,
         )
@@ -80,6 +83,7 @@ async def login(
         actor_user_id=user.id,
         action="login",
         outcome="allow",
+        policy_reason_code=PolicyReasonCode.AUTH_SUCCESS,
         ip_address=ip_address,
     )
 
