@@ -58,7 +58,7 @@ async def index_document(
         return 0
 
     # 2. Extract structured text passages
-    extraction = extract_document_text(document.file_type, file_bytes)
+    extraction = extract_document_text(document.file_type, file_bytes, filename=document.title)
     if extraction.status == "failed" or not extraction.passages:
         logger.warning(
             "Extraction yielded no passages or failed for document %s: %s",

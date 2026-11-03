@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     SYSTEM_PROMPT_VERSION: str = "v1.0.0"
     BENCHMARK_DATASET_VERSION: str = "v2.0.0"
 
+    # Structured Document Intelligence & OCR (Phase 16 Feature Flags)
+    ENABLE_OCR: bool = True
+    OCR_ADAPTER_TYPE: Literal["default", "mock"] = "default"
+    OCR_MIN_CHARS_PER_PAGE: int = 30
+    OCR_CONFIDENCE_THRESHOLD: float = 0.65
+    MAX_DOCUMENT_PAGES: int = 150
+    EXTRACTION_TIMEOUT_SECONDS: float = 30.0
+
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

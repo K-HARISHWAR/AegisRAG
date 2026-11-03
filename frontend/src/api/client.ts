@@ -8,6 +8,7 @@ import {
   AuditEvent,
   ChatQueryResponse,
   DocumentContentResponse,
+  DocumentExtractionPreviewResponse,
   DocumentHistoryResponse,
   DocumentItem,
   FeedbackCreateRequest,
@@ -175,6 +176,17 @@ export const api = {
     async rollback(id: string): Promise<DocumentItem> {
       return request<DocumentItem>(`/api/v1/documents/${id}/rollback`, {
         method: 'POST',
+      });
+    },
+
+    async getExtractionPreview(id: string): Promise<DocumentExtractionPreviewResponse> {
+      return request<DocumentExtractionPreviewResponse>(`/api/v1/documents/${id}/extraction-preview`);
+    },
+
+    async previewUpload(formData: FormData): Promise<DocumentExtractionPreviewResponse> {
+      return request<DocumentExtractionPreviewResponse>('/api/v1/documents/preview', {
+        method: 'POST',
+        body: formData,
       });
     },
   },

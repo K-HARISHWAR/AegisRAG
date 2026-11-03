@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { X, UploadCloud, AlertCircle, CheckCircle2, Lock, GitBranch } from 'lucide-react';
+import { X, UploadCloud, AlertCircle, CheckCircle2, Lock, GitBranch, FileSearch } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { DocumentItem } from '../types';
+import { DocumentItem, DocumentExtractionPreviewResponse } from '../types';
+import { ExtractionPreviewModal } from './ExtractionPreviewModal';
 
 interface DocumentUploadModalProps {
   isOpen: boolean;
@@ -31,8 +32,31 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
     revisingDocument ? revisingDocument.is_confidential : false
   );
   const [isUploading, setIsUploading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<DocumentExtractionPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const handlePreview = async () => {
+    if (!file) {
+      setError('Please select a file to preview.');
+      return;
+    }
+    setIsPreviewing(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await api.documents.previewUpload(formData);
+      setPreviewData(res);
+      setIsPreviewOpen(true);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to preview file extraction');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
 
   useEffect(() => {
     if (revisingDocument) {
@@ -253,35 +277,67 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isUploading}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isUploading}
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              {isUploading ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Indexing...</span>
-                </>
-              ) : (
-                <>
-                  <UploadCloud size={14} />
-                  <span>Upload & Index</span>
-                </>
+          <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-200">
+            <div>
+              {file && (
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={isUploading || isPreviewing}
+                  className="px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Preview extraction quality, OCR telemetry, and table structure before upload"
+                >
+                  {isPreviewing ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin" />
+                      <span>Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileSearch size={14} />
+                      <span>Preview Extraction</span>
+                    </>
+                  )}
+                </button>
               )}
-            </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isUploading}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isUploading}
+                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isUploading ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Indexing...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud size={14} />
+                    <span>Upload & Index</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
+
+      <ExtractionPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        previewData={previewData}
+      />
     </div>
   );
 };

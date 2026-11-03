@@ -560,7 +560,66 @@ This log tracks architectural decisions, completed phases, verification commands
   - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR).
   - `npm --prefix frontend test` -> 8/8 passed.
   - `npm --prefix frontend run build` -> Clean build in 8.80s with zero errors.
-- **Next Step**: Phase 16 — Advanced Deployment, Observability, and Enterprise Readiness.
+- **Next Step**: Phase 16 — OCR, Table-Aware, and Structured Document Intelligence.
+
+---
+
+## Phase 16: OCR, Table-Aware, and Structured Document Intelligence
+- **Date**: 2026-11-03
+- **Completed Deliverables**:
+  - `backend/app/core/config.py`:
+    - Added configuration parameters: `ENABLE_OCR: bool = True`, `OCR_ADAPTER_TYPE: Literal["default", "mock"] = "default"`, `OCR_MIN_CHARS_PER_PAGE: int = 30`, `OCR_CONFIDENCE_THRESHOLD: float = 0.65`, `MAX_DOCUMENT_PAGES: int = 150`, and `EXTRACTION_TIMEOUT_SECONDS: float = 30.0`.
+  - `backend/app/services/ocr.py`:
+    - Created OCR adapter subsystem with pluggable interface:
+      - `OCRPageResult`: Structured result holding extracted text, confidence score, engine, language, and bounding boxes.
+      - `OCRAdapter`: Abstract base class protocol.
+      - `DefaultOCRAdapter`: Pluggable implementation supporting Tesseract OCR with automatic fallback to PIL/Pillow image analysis.
+      - `MockOCRAdapter`: Deterministic test adapter supporting simulated text extraction, confidence thresholds, and execution call counting.
+      - Global adapter accessor and setter (`get_ocr_adapter`, `set_ocr_adapter`).
+  - `backend/app/schemas/document.py` & `backend/app/schemas/__init__.py`:
+    - Added `ExtractionQualityReport` schema capturing: `pages_processed`, `ocr_pages`, `native_text_pages`, `empty_pages`, `total_characters`, `quality_score`, `warnings`, `extraction_methods`, `has_tables`, `has_ocr`, and `is_quarantined`.
+    - Added `DocumentExtractionPreviewResponse` schema for pre-indexing analysis.
+    - Updated `DocumentPassageRead`, `DocumentContentResponse`, and `DocumentUploadResponse` with quality telemetry and extraction provenance.
+  - `backend/app/services/validation.py`:
+    - Added archive decompression ratio check (`total_uncompressed / compressed_size > 100`) to prevent zip bomb attacks on DOCX and XLSX uploads.
+  - `backend/app/services/extraction.py`:
+    - **Scanned PDF Routing & Non-Duplication**: Scanned or image-only PDF pages route to OCR while digital text pages extract native characters directly. Prevents duplicate extraction for native text documents.
+    - **DOCX Table Intelligence**: Table extraction preserves header hierarchy by associating each cell with its corresponding column header, producing header-paired passages (`{raw_line} | {Column: Value, ...}`) with `extraction_method = "table_aware"`.
+    - **XLSX Structured Coordinates**: Preserves workbook filename, sheet name, column headers, and exact cell ranges (`Sheet: {sheet_name}!Row {r_idx}, Range: {min_col}{r_idx}:{max_col}{r_idx}`), producing traceable provenance coordinates with `extraction_method = "spreadsheet_grid"`.
+    - **Quality Telemetry Computation**: Automatically calculates `quality_score` (0.0 to 1.0), flags low-confidence OCR scans (< 65%), logs warnings for empty pages or corrupt regions.
+    - **File Safety Protections**: Enforces `MAX_DOCUMENT_PAGES` (150 pages maximum) and rejects malformed/spoofed signatures safely.
+    - **Extraction Preview Engine**: Implemented `generate_extraction_preview` for admin pre-index inspection.
+  - `backend/app/api/routes/documents.py`:
+    - Added `POST /api/v1/documents/preview`: Upload preview endpoint returning extraction passages, coordinate provenance, and quality report without writing to disk or vector database.
+    - Added `GET /api/v1/documents/{document_id}/extraction-preview`: Returns extraction preview for existing documents, protected by server-side PostgreSQL RBAC.
+    - Updated `upload_document` and `get_document_content` to include quality report telemetry.
+  - `backend/tests/test_document_intelligence.py`:
+    - 7 comprehensive unit, integration, and security tests:
+      1. `test_scanned_pdf_is_searchable_with_ocr_and_page_citations`: Scanned PDF routes to OCR and produces searchable citations in chat.
+      2. `test_native_text_pdf_not_duplicated_by_ocr`: Native text extracts directly without duplicating OCR text.
+      3. `test_docx_table_aware_extraction_preserves_headers`: DOCX table pairs rows with column headers.
+      4. `test_spreadsheet_extraction_preserves_sheet_and_cell_range`: XLSX preserves sheet names, ranges (A2:D2), and values.
+      5. `test_malformed_and_suspicious_files_fail_safely`: Malformed files, magic signature mismatches, and corrupt archives fail safely.
+      6. `test_low_quality_ocr_is_visibly_flagged`: Low-confidence OCR results flag warnings and downscore quality.
+      7. `test_admin_extraction_preview_endpoint_rbac`: Preview endpoint enforces RBAC permissions (403 for unauthorized users).
+  - `frontend/src/types/index.ts`:
+    - Added `ExtractionQualityReport`, `DocumentExtractionPreviewResponse`, and updated `DocumentContentPassage` and `DocumentContentResponse`.
+  - `frontend/src/api/client.ts`:
+    - Added `documents.getExtractionPreview(id)` and `documents.previewUpload(formData)`.
+  - `frontend/src/components/ExtractionPreviewModal.tsx`:
+    - Full-featured modal displaying Quality Score badge (green/orange/red), Pages/Sheets breakdown (native vs OCR), Warnings banner, Table/Grid indicators, and list of extracted passages with exact coordinates and extraction method badges.
+  - `frontend/src/components/DocumentUploadModal.tsx`:
+    - Added pre-upload "Preview Extraction" action allowing managers to preview OCR quality and table structure before committing documents to the index.
+  - `frontend/src/pages/DocumentsPage.tsx`:
+    - Added "Preview Extraction" action button to document table rows for quick telemetry analysis.
+- **Verification Commands Run**:
+  - `pytest backend/tests/test_extraction.py backend/tests/test_document_intelligence.py -v` -> 13/13 passed in 11.23s.
+  - `pytest backend/tests/ -v` -> 118/118 passed in 145.44s.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
+  - `npm --prefix frontend test -- --run` -> 8/8 passed in 19.00s.
+  - `npm --prefix frontend run build` -> Production bundle compiled cleanly in 6.72s with zero TypeScript errors.
+- **Next Step**: Phase 17 — Advanced Observability, Audit Hardening, and Production Scalability.
+
 
 
 

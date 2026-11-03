@@ -80,3 +80,4 @@ def downgrade() -> None:
         op.drop_table("thread_messages")
     if insp.has_table("threads"):
         op.drop_table("threads")
+

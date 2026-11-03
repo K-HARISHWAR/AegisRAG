@@ -119,3 +119,4 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     </div>
   );
 };
+

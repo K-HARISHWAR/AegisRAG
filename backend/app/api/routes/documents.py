@@ -16,6 +16,7 @@ from app.schemas.chunk import DocumentChunkRead
 from app.schemas.document import (
     DocumentContentResponse,
     DocumentCreate,
+    DocumentExtractionPreviewResponse,
     DocumentGrantCreate,
     DocumentGrantRead,
     DocumentHistoryResponse,
@@ -23,10 +24,11 @@ from app.schemas.document import (
     DocumentRead,
     DocumentRevisionHistoryItem,
     DocumentUploadResponse,
+    ExtractionQualityReport,
 )
 from app.services.audit import log_audit_event
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
-from app.services.extraction import extract_document_text
+from app.services.extraction import extract_document_text, generate_extraction_preview
 from app.services.indexing import index_document
 from app.services.policy import (
     can_manage_grants,
@@ -281,7 +283,7 @@ async def upload_document(
         )
 
     # 4. Safe text extraction
-    extraction = extract_document_text(validated.file_type, file_bytes)
+    extraction = extract_document_text(validated.file_type, file_bytes, filename=validated.sanitized_filename)
 
     # Lifecycle status based on extraction outcome
     doc_status = "failed" if extraction.status == "failed" else "uploaded"
@@ -384,6 +386,7 @@ async def upload_document(
         extraction_status=extraction.status,
         total_passages=len(extraction.passages),
         warning_message=extraction.warning_message,
+        quality_report=extraction.quality_report,
     )
 
 
@@ -509,7 +512,86 @@ async def get_document_content(
         passages=passages,
         total_passages=total_passages,
         total_characters=total_characters,
+        quality_report=extraction.quality_report if 'extraction' in locals() else None,
     )
+
+
+@router.post(
+    "/preview",
+    response_model=DocumentExtractionPreviewResponse,
+    summary="Preview document extraction and quality report",
+    description="Allows managers and admins to preview extracted passages, coordinates, and OCR quality metrics before indexing.",
+)
+async def preview_document_extraction(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: UploadFile = File(...),
+) -> DocumentExtractionPreviewResponse:
+    """Preview document text extraction, table structures, and OCR quality metrics without indexing."""
+    if not (current_user.is_admin or current_user.is_manager or current_user.is_superuser):
+        if not (current_user.department_id and can_upload_document(current_user, current_user.department_id)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to preview document extractions",
+            )
+
+    file_bytes = await file.read()
+    filename = file.filename or "uploaded_document"
+    validated = validate_file_upload(filename, file_bytes)
+
+    return generate_extraction_preview(
+        file_type=validated.file_type,
+        file_bytes=file_bytes,
+        filename=validated.sanitized_filename,
+    )
+
+
+@router.get(
+    "/{document_id}/extraction-preview",
+    response_model=DocumentExtractionPreviewResponse,
+    summary="Get extraction preview and quality report for an existing document",
+    description="Returns detailed extraction preview and quality report for a stored document.",
+)
+async def get_document_extraction_preview(
+    document_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage: StorageProvider = Depends(get_storage_provider),
+) -> DocumentExtractionPreviewResponse:
+    """Retrieve extraction preview and quality report for an already ingested document."""
+    stmt = (
+        select(Document)
+        .options(selectinload(Document.grants))
+        .where(Document.id == document_id)
+    )
+    result = await db.execute(stmt)
+    document = result.scalars().first()
+
+    if not document or document.status == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if not await can_read_document(current_user, document, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You are not authorized to preview this document",
+        )
+
+    try:
+        file_bytes = await storage.read_file(document.storage_key)
+        return generate_extraction_preview(
+            file_type=document.file_type,
+            file_bytes=file_bytes,
+            filename=document.title,
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document binary file not found in storage",
+        )
 
 
 @router.delete(

@@ -2,7 +2,8 @@
 
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, model_validator
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DocumentGrantRead(BaseModel):
@@ -68,12 +69,32 @@ class DocumentCreate(BaseModel):
     is_confidential: bool = False
 
 
+class ExtractionQualityReport(BaseModel):
+    """Quality and provenance metrics from structured document extraction and OCR."""
+
+    pages_processed: int = 0
+    ocr_pages: int = 0
+    native_text_pages: int = 0
+    empty_pages: int = 0
+    total_characters: int = 0
+    quality_score: float = 1.0  # 0.0 to 1.0
+    warnings: list[str] = Field(default_factory=list)
+    extraction_methods: list[str] = Field(default_factory=list)
+    has_tables: bool = False
+    has_ocr: bool = False
+    is_quarantined: bool = False
+    quarantine_reason: str | None = None
+
+
 class DocumentPassageRead(BaseModel):
-    """Passage location and text representation."""
+    """Passage location, coordinates, and provenance representation."""
 
     location: str
     text: str
     passage_index: int
+    extraction_method: str | None = None
+    confidence: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DocumentContentResponse(BaseModel):
@@ -84,6 +105,7 @@ class DocumentContentResponse(BaseModel):
     passages: list[DocumentPassageRead]
     total_passages: int
     total_characters: int
+    quality_report: ExtractionQualityReport | None = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -93,6 +115,20 @@ class DocumentUploadResponse(BaseModel):
     extraction_status: str
     total_passages: int
     warning_message: str | None = None
+    quality_report: ExtractionQualityReport | None = None
+
+
+class DocumentExtractionPreviewResponse(BaseModel):
+    """Detailed preview of extracted content and quality report before indexing."""
+
+    title: str
+    file_type: str
+    file_size_bytes: int
+    quality_report: ExtractionQualityReport
+    passages: list[DocumentPassageRead]
+    total_passages: int
+    detected_tables: int = 0
+    detected_sheets: list[str] = Field(default_factory=list)
 
 
 class DocumentRevisionHistoryItem(BaseModel):

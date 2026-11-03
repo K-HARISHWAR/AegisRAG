@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   GitBranch,
+  FileSearch,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -18,6 +19,7 @@ import { DocumentItem } from '../types';
 import { DocumentUploadModal } from '../components/DocumentUploadModal';
 import { DocumentViewerModal } from '../components/DocumentViewerModal';
 import { GrantModal } from '../components/GrantModal';
+import { ExtractionPreviewModal } from '../components/ExtractionPreviewModal';
 
 export const DocumentsPage: React.FC = () => {
   const { user, isManager, isAdmin } = useAuth();
@@ -30,6 +32,7 @@ export const DocumentsPage: React.FC = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [revisingDoc, setRevisingDoc] = useState<DocumentItem | null>(null);
   const [selectedDocForView, setSelectedDocForView] = useState<DocumentItem | null>(null);
+  const [selectedDocForPreview, setSelectedDocForPreview] = useState<DocumentItem | null>(null);
   const [selectedDocForGrant, setSelectedDocForGrant] = useState<DocumentItem | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -245,6 +248,13 @@ export const DocumentsPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
+                          onClick={() => setSelectedDocForPreview(doc)}
+                          className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                          title="Preview extraction telemetry, OCR confidence, and table structures"
+                        >
+                          <FileSearch size={15} />
+                        </button>
+                        <button
                           onClick={() => setSelectedDocForView(doc)}
                           className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                           title="View extracted passages, citation coordinates, and revision timeline"
@@ -316,6 +326,12 @@ export const DocumentsPage: React.FC = () => {
         document={selectedDocForGrant}
         onClose={() => setSelectedDocForGrant(null)}
         onSuccess={fetchDocuments}
+      />
+
+      <ExtractionPreviewModal
+        isOpen={!!selectedDocForPreview}
+        onClose={() => setSelectedDocForPreview(null)}
+        document={selectedDocForPreview}
       />
     </div>
   );

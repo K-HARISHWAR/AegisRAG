@@ -63,10 +63,28 @@ export interface DocumentItem {
   grants: DocumentGrant[];
 }
 
+export interface ExtractionQualityReport {
+  pages_processed: number;
+  ocr_pages: number;
+  native_text_pages: number;
+  empty_pages: number;
+  total_characters: number;
+  quality_score: number;
+  warnings: string[];
+  extraction_methods: string[];
+  has_tables: boolean;
+  has_ocr: boolean;
+  is_quarantined: boolean;
+  quarantine_reason?: string | null;
+}
+
 export interface DocumentContentPassage {
   index: number;
   location: string;
   text: string;
+  extraction_method?: string | null;
+  confidence?: number | null;
+  metadata?: Record<string, any>;
 }
 
 export interface DocumentContentResponse {
@@ -75,6 +93,18 @@ export interface DocumentContentResponse {
   total_passages: number;
   status: string;
   passages: DocumentContentPassage[];
+  quality_report?: ExtractionQualityReport | null;
+}
+
+export interface DocumentExtractionPreviewResponse {
+  title: string;
+  file_type: string;
+  file_size_bytes: number;
+  quality_report: ExtractionQualityReport;
+  passages: DocumentContentPassage[];
+  total_passages: number;
+  detected_tables: number;
+  detected_sheets: string[];
 }
 
 export interface Citation {

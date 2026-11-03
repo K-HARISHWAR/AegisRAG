@@ -67,6 +67,14 @@ def _verify_magic_signature(file_bytes: bytes, file_type: str) -> None:
         # Inspect internal zip package structure safely
         try:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                # Zip bomb / decompression attack guard
+                total_uncompressed = sum(info.file_size for info in zf.infolist())
+                compressed_size = len(file_bytes)
+                if compressed_size > 0 and (total_uncompressed / compressed_size) > 100:
+                    raise FileValidationError(
+                        f"Suspicious {file_type.upper()}: abnormal compression ratio indicates potential decompression bomb."
+                    )
+
                 namelist = zf.namelist()
                 if "[Content_Types].xml" not in namelist:
                     raise FileValidationError(

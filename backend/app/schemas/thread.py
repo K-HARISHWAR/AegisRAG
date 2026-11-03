@@ -131,3 +131,4 @@ class ThreadRead(BaseModel):
     updated_at: datetime
     messages: List[ThreadMessageRead] = Field(default_factory=list)
     bookmarks: List[ThreadBookmarkRead] = Field(default_factory=list)
+
