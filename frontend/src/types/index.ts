@@ -424,4 +424,126 @@ export interface ThreadBookmarkCreateRequest {
   notes?: string;
 }
 
+// --- Knowledge Workflows (Phase 18) ---
+
+export interface WorkflowStepTrace {
+  step_name: string;
+  tool_name: string;
+  status: string;
+  duration_ms: number;
+  details: Record<string, any>;
+}
+
+export interface ClauseDiffItem {
+  clause_type: 'added' | 'removed' | 'modified';
+  source_text?: string | null;
+  target_text?: string | null;
+  source_citation?: string | null;
+  target_citation?: string | null;
+  policy_impact: string;
+  severity_or_importance: 'low' | 'medium' | 'high';
+}
+
+export interface VersionComparisonResponse {
+  workflow_id: string;
+  source_document: {
+    id: string;
+    title: string;
+    version: number;
+    department_id: string;
+  };
+  target_document: {
+    id: string;
+    title: string;
+    version: number;
+    department_id: string;
+  };
+  executive_summary: string;
+  diff_items: ClauseDiffItem[];
+  total_added: number;
+  total_removed: number;
+  total_modified: number;
+  citations: string[];
+  steps: WorkflowStepTrace[];
+  total_duration_ms: number;
+}
+
+export interface DocumentSummaryItem {
+  document_id: string;
+  title: string;
+  version: number;
+  key_takeaways: string[];
+  citations: string[];
+}
+
+export interface ThematicFinding {
+  theme: string;
+  summary: string;
+  points: string[];
+}
+
+export interface CollectionSummaryResponse {
+  workflow_id: string;
+  collection_title: string;
+  total_documents_analyzed: number;
+  excluded_restricted_count: number;
+  executive_summary: string;
+  thematic_findings: ThematicFinding[];
+  document_breakdowns: DocumentSummaryItem[];
+  citations: string[];
+  steps: WorkflowStepTrace[];
+  total_duration_ms: number;
+}
+
+export interface ExtractedField {
+  field_name: string;
+  value: any;
+  confidence: number;
+  citation: string;
+  notes?: string | null;
+}
+
+export interface ExtractedRisk {
+  risk_title: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  mitigation?: string | null;
+  citation: string;
+}
+
+export interface StructuredExtractionResponse {
+  workflow_id: string;
+  document_id: string;
+  title: string;
+  version: number;
+  owner?: ExtractedField | null;
+  effective_date?: ExtractedField | null;
+  deadline_or_cycle?: ExtractedField | null;
+  requirements: ExtractedField[];
+  risks: ExtractedRisk[];
+  compliance_obligations: ExtractedField[];
+  citations: string[];
+  steps: WorkflowStepTrace[];
+  total_duration_ms: number;
+}
+
+export interface WorkflowExecutionRead {
+  id: string;
+  workflow_type: string;
+  status: string;
+  title: string;
+  total_duration_ms: number;
+  created_at: string;
+  steps?: WorkflowStepTrace[] | null;
+  result_data?: Record<string, any> | null;
+}
+
+export interface ToolAllowlistInfo {
+  is_read_only: boolean;
+  allowed_tools: string[];
+  disallowed_tools_sample: string[];
+  default_deny: boolean;
+  external_write_actions_permitted: boolean;
+}
+
 

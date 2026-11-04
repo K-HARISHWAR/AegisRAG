@@ -44,6 +44,22 @@ from app.schemas.thread import (
     ThreadBookmarkCreate,
     ThreadBookmarkRead,
 )
+from app.schemas.workflow import (
+    ClauseDiffItem,
+    CollectionSummaryRequest,
+    CollectionSummaryResponse,
+    DocumentSummaryItem,
+    ExtractedField,
+    ExtractedRisk,
+    SourceReference,
+    StructuredExtractionRequest,
+    StructuredExtractionResponse,
+    VersionComparisonRequest,
+    VersionComparisonResponse,
+    WorkflowExecutionRead,
+    WorkflowExportRequest,
+    WorkflowStepTrace,
+)
 
 __all__ = [
     "LoginRequest",
@@ -93,4 +109,18 @@ __all__ = [
     "ThreadMessageRead",
     "ThreadBookmarkCreate",
     "ThreadBookmarkRead",
+    "ClauseDiffItem",
+    "CollectionSummaryRequest",
+    "CollectionSummaryResponse",
+    "DocumentSummaryItem",
+    "ExtractedField",
+    "ExtractedRisk",
+    "SourceReference",
+    "StructuredExtractionRequest",
+    "StructuredExtractionResponse",
+    "VersionComparisonRequest",
+    "VersionComparisonResponse",
+    "WorkflowExecutionRead",
+    "WorkflowExportRequest",
+    "WorkflowStepTrace",
 ]

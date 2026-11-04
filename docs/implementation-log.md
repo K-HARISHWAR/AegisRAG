@@ -680,6 +680,81 @@ This log tracks architectural decisions, completed phases, verification commands
   - `npm --prefix frontend run build` -> Production bundle compiled cleanly in 10.23s with zero TypeScript errors.
 - **Next Step**: Phase 18 — Read-Only Knowledge Workflows.
 
+---
+
+## Phase 18: Read-Only Knowledge Workflows
+- **Date**: 2026-11-04
+- **Completed Deliverables**:
+  - `backend/app/core/workflow_tools.py`:
+    - Defined explicit read-only `WorkflowToolName` enum: `read_document_passages`, `compare_document_versions`, `extract_structured_fields`, `summarize_collection`.
+    - Created immutable `ALLOWLISTED_WORKFLOW_TOOLS` set and blacklisted `DISALLOWED_TOOLS` (blocking arbitrary shell, bash, SQL, email, browser, or arbitrary eval execution).
+    - Implemented `verify_tool_allowlist(tool_name)` failing closed with `DisallowedToolError` for any non-allowlisted tool.
+  - `backend/app/core/policy_codes.py`:
+    - Added workflow policy codes: `WORKFLOW_COMPARE_EXECUTED`, `WORKFLOW_SUMMARY_EXECUTED`, `WORKFLOW_EXTRACTION_EXECUTED`, `WORKFLOW_EXPORTED`, `TOOL_ALLOWLIST_VERIFIED`, `TOOL_DISALLOWED_DENIED`, and `WORKFLOW_ACCESS_DENIED`.
+  - `backend/app/models/workflow.py` & `backend/app/models/__init__.py`:
+    - Created `WorkflowExecution` ORM model tracking workflow ID, user ID, workflow type, status, title, input parameters, result data, step execution traces, authorized document IDs, and execution duration.
+  - `backend/alembic/versions/0006_workflow_executions.py`:
+    - Created and applied database migration for `workflow_executions` table and indexes.
+  - `backend/app/schemas/workflow.py` & `backend/app/schemas/__init__.py`:
+    - Added schemas: `WorkflowStepTrace`, `SourceReference`, `ClauseDiffItem`, `VersionComparisonRequest`, `VersionComparisonResponse`, `DocumentSummaryItem`, `CollectionSummaryRequest`, `CollectionSummaryResponse`, `ExtractedField`, `ExtractedRisk`, `StructuredExtractionRequest`, `StructuredExtractionResponse`, `WorkflowExportRequest`, and `WorkflowExecutionRead`.
+  - `backend/app/services/workflow.py`:
+    - Implemented `execute_version_comparison`:
+      - Revalidates caller permissions on both revisions against PostgreSQL.
+      - Computes clause-by-clause additions, deletions, and modifications with policy impact analysis.
+      - Strictly cites both document versions (`[Doc: title v1, Page X]`, `[Doc: title v2, Page Y]`).
+    - Implemented `execute_collection_summary`:
+      - Pre-filters candidate documents and post-revalidates chunks against PostgreSQL RBAC.
+      - Excludes restricted documents completely from summary synthesis and citations.
+      - Fails closed (403) if all requested documents are restricted.
+    - Implemented `execute_structured_extraction`:
+      - Extracts custodian / owner, effective date, review cycle / deadlines, requirements list, and risk matrix with severity classifications and citation provenance.
+    - Implemented `_sanitize_untrusted_text`:
+      - Neutralizes prompt injection commands (e.g. system overrides, shell executions, rm commands) within document text.
+    - Implemented `render_workflow_markdown` & `render_workflow_pdf`:
+      - Generates formatted Markdown reports and compilable binary PDF documents using ReportLab.
+    - Database state persistence:
+      - Records all execution traces and logs governance audit events.
+  - `backend/app/api/routes/workflows.py`:
+    - Registered endpoints: `POST /api/v1/workflows/compare`, `POST /api/v1/workflows/summarize-collection`, `POST /api/v1/workflows/extract-fields`, `POST /api/v1/workflows/export`, `GET /api/v1/workflows/history`, `GET /api/v1/workflows/{execution_id}`, and `GET /api/v1/workflows/tools`.
+  - `backend/app/main.py`:
+    - Mounted `workflows.router` at `/api/v1/workflows`.
+  - `backend/tests/test_workflows.py`:
+    - 9 comprehensive unit, integration, and security tests:
+      1. `test_tool_allowlist_enforcement`: Approved tools succeed; dangerous/arbitrary tools fail closed.
+      2. `test_version_comparison_cites_both_versions`: Compares v1 and v2, verifies diff items, and asserts citations to both versions.
+      3. `test_restricted_documents_cannot_enter_collection_summary`: Regular employee cannot leak restricted files into collection summary.
+      4. `test_collection_summary_fails_closed_when_all_documents_restricted`: Requesting only restricted files returns 403 Forbidden.
+      5. `test_prompt_injection_cannot_trigger_tools_or_alter_policy`: Injected document instructions are neutralized and execute zero unapproved tools.
+      6. `test_structured_field_extraction_with_risk_matrix`: Accurately extracts custodian, requirements, and risks with citations.
+      7. `test_export_workflow_generates_markdown_and_pdf`: Exports valid Markdown and binary PDF (`%PDF-`) with citations.
+      8. `test_unauthorized_version_comparison_denied`: Attempting to compare unauthorized document fails closed with 403.
+      9. `test_workflow_history_and_tools_endpoints`: Inspects allowlisted tools and user execution history.
+  - `frontend/src/types/index.ts`:
+    - Added workflow TypeScript interfaces (`WorkflowStepTrace`, `ClauseDiffItem`, `VersionComparisonResponse`, `CollectionSummaryResponse`, `StructuredExtractionResponse`, `WorkflowExecutionRead`, `ToolAllowlistInfo`).
+  - `frontend/src/api/client.ts`:
+    - Added `workflows` API client (`compare`, `summarizeCollection`, `extractFields`, `exportWorkflow`, `getHistory`, `getTools`). Updated `documents.list(includeSuperseded)` support.
+  - `frontend/src/components/Navbar.tsx`:
+    - Added "Workflows" tab with `GitCompare` icon.
+  - `frontend/src/App.tsx`:
+    - Integrated `WorkflowsPage` component into tab navigation.
+  - `frontend/src/pages/WorkflowsPage.tsx`:
+    - Full-featured knowledge workflows workbench:
+      - Active Tool Allowlist guardrail banner.
+      - Version Comparison workbench with diff counters, side-by-side cards, and dual-version citations.
+      - Collection Summary workbench with multi-document selection, exclusion tracking, and thematic findings cards.
+      - Structured Extraction workbench with custodian, deadlines, requirements, and risk matrix.
+      - One-click Markdown and PDF export downloads.
+      - Workflow execution history and telemetry table.
+- **Verification Commands Run**:
+  - `alembic -c backend/alembic.ini upgrade head` -> Applied `0006_workflow_executions`.
+  - `pytest backend/tests/test_workflows.py -v` -> 9/9 passed in 6.53s.
+  - `pytest backend/tests/ -v` -> 134/134 passed in 100.20s.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
+  - `npm --prefix frontend test -- --run` -> 8/8 passed in 12.30s.
+  - `npm --prefix frontend run build` -> Compiled cleanly in 5.11s with zero errors.
+- **Next Step**: Phase 19 — Observability, Performance and Cost Controls.
+
+
 
 
 

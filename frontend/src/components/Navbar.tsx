@@ -1,11 +1,11 @@
 import React from 'react';
-import { Shield, MessageSquare, Files, Settings, LogOut, User as UserIcon } from 'lucide-react';
+import { Shield, MessageSquare, Files, Settings, LogOut, User as UserIcon, GitCompare } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { HealthBadge } from './HealthBadge';
 
 interface NavbarProps {
-  activeTab: 'chat' | 'documents' | 'admin';
-  onSelectTab: (tab: 'chat' | 'documents' | 'admin') => void;
+  activeTab: 'chat' | 'documents' | 'admin' | 'workflows';
+  onSelectTab: (tab: 'chat' | 'documents' | 'admin' | 'workflows') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
@@ -78,6 +78,18 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
               >
                 <Files size={16} />
                 <span>Documents</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('workflows')}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'workflows'
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <GitCompare size={16} />
+                <span>Workflows</span>
               </button>
 
               {isAdmin && (

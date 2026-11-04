@@ -5,10 +5,11 @@ import { LoginPage } from './pages/LoginPage';
 import { ChatPage } from './pages/ChatPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { AdminPage } from './pages/AdminPage';
+import { WorkflowsPage } from './pages/WorkflowsPage';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'chat' | 'documents' | 'admin'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'documents' | 'admin' | 'workflows'>('chat');
 
   if (isLoading) {
     return (
@@ -23,7 +24,7 @@ const AppContent: React.FC = () => {
     return <LoginPage onLoginSuccess={() => setActiveTab('chat')} />;
   }
 
-  const handleSelectTab = (tab: 'chat' | 'documents' | 'admin') => {
+  const handleSelectTab = (tab: 'chat' | 'documents' | 'admin' | 'workflows') => {
     if (tab === 'admin' && !isAdmin) {
       setActiveTab('chat');
     } else {
@@ -37,6 +38,7 @@ const AppContent: React.FC = () => {
       <main className="flex-1">
         {activeTab === 'chat' && <ChatPage />}
         {activeTab === 'documents' && <DocumentsPage />}
+        {activeTab === 'workflows' && <WorkflowsPage />}
         {activeTab === 'admin' && <AdminPage />}
       </main>
     </div>

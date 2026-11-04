@@ -9,6 +9,7 @@ from app.models.grant import DocumentGrant
 from app.models.audit import AuditEvent
 from app.models.feedback import Feedback
 from app.models.thread import Thread, ThreadMessage, ThreadBookmark
+from app.models.workflow import WorkflowExecution
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "Thread",
     "ThreadMessage",
     "ThreadBookmark",
+    "WorkflowExecution",
 ]

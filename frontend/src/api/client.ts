@@ -28,6 +28,11 @@ import {
   ThreadSummary,
   ThreadUpdateRequest,
   User,
+  VersionComparisonResponse,
+  CollectionSummaryResponse,
+  StructuredExtractionResponse,
+  WorkflowExecutionRead,
+  ToolAllowlistInfo,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -128,8 +133,9 @@ export const api = {
 
   // Document Management & Ingestion
   documents: {
-    async list(): Promise<DocumentItem[]> {
-      return request<DocumentItem[]>('/api/v1/documents');
+    async list(includeSuperseded: boolean = false): Promise<DocumentItem[]> {
+      const q = includeSuperseded ? '?include_superseded=true' : '';
+      return request<DocumentItem[]>(`/api/v1/documents${q}`);
     },
 
     async get(id: string): Promise<DocumentItem> {
@@ -327,6 +333,73 @@ export const api = {
       return request<{ status: string; bookmark_id: string }>(`/api/v1/threads/bookmarks/${bookmarkId}`, {
         method: 'DELETE',
       });
+    },
+  },
+
+  // Knowledge Workflows (Phase 18)
+  workflows: {
+    async compare(payload: {
+      source_document_id: string;
+      target_document_id: string;
+      focus?: string;
+    }): Promise<VersionComparisonResponse> {
+      return request<VersionComparisonResponse>('/api/v1/workflows/compare', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async summarizeCollection(payload: {
+      document_ids?: string[];
+      department_id?: string;
+      collection_title?: string;
+      focus_query?: string;
+    }): Promise<CollectionSummaryResponse> {
+      return request<CollectionSummaryResponse>('/api/v1/workflows/summarize-collection', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async extractFields(payload: {
+      document_id: string;
+      template_type?: string;
+    }): Promise<StructuredExtractionResponse> {
+      return request<StructuredExtractionResponse>('/api/v1/workflows/extract-fields', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async exportWorkflow(payload: {
+      workflow_type: string;
+      data: any;
+      format: 'markdown' | 'pdf' | 'text';
+      title?: string;
+      workflow_id?: string;
+    }): Promise<Blob> {
+      const url = `${API_BASE}/api/v1/workflows/export`;
+      const headers = {
+        ...getAuthHeader(),
+        'Content-Type': 'application/json',
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error(`Export failed with status ${res.status}`);
+      }
+      return res.blob();
+    },
+
+    async getHistory(limit: number = 20): Promise<WorkflowExecutionRead[]> {
+      return request<WorkflowExecutionRead[]>(`/api/v1/workflows/history?limit=${limit}`);
+    },
+
+    async getTools(): Promise<ToolAllowlistInfo> {
+      return request<ToolAllowlistInfo>('/api/v1/workflows/tools');
     },
   },
 
