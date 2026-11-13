@@ -60,6 +60,13 @@ from app.schemas.workflow import (
     WorkflowExportRequest,
     WorkflowStepTrace,
 )
+from app.schemas.operations import (
+    OperationsMetricsResponse,
+    QuotaStatusResponse,
+    RequestTraceRead,
+    SpanRead,
+    StageLatencyStat,
+)
 
 __all__ = [
     "LoginRequest",
@@ -123,4 +130,9 @@ __all__ = [
     "WorkflowExecutionRead",
     "WorkflowExportRequest",
     "WorkflowStepTrace",
+    "SpanRead",
+    "RequestTraceRead",
+    "StageLatencyStat",
+    "OperationsMetricsResponse",
+    "QuotaStatusResponse",
 ]

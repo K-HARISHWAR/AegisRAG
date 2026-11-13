@@ -754,6 +754,76 @@ This log tracks architectural decisions, completed phases, verification commands
   - `npm --prefix frontend run build` -> Compiled cleanly in 5.11s with zero errors.
 - **Next Step**: Phase 19 — Observability, Performance and Cost Controls.
 
+---
+
+## Phase 19: Observability, Performance and Cost Controls
+- **Date**: 2026-11-13
+- **Completed Deliverables**:
+  - `backend/app/core/policy_codes.py`:
+    - Added Phase 19 policy reason codes: `RATE_LIMIT_EXCEEDED`, `QUOTA_EXCEEDED`, `CACHE_HIT`, `CACHE_MISS`, `TRACE_RECORDED`, and `PROVIDER_TIMEOUT`.
+  - `backend/app/core/config.py`:
+    - Added rate limit and quota settings: `ENABLE_RATE_LIMITING: bool = True`, `RATE_LIMIT_EMPLOYEE_PER_MINUTE: int = 30`, `RATE_LIMIT_MANAGER_PER_MINUTE: int = 60`, `RATE_LIMIT_ADMIN_PER_MINUTE: int = 120`, `DAILY_QUOTA_EMPLOYEE: int = 200`, `DAILY_QUOTA_MANAGER: int = 500`, `DAILY_QUOTA_ADMIN: int = 5000`.
+    - Added safe policy-scoped cache settings: `ENABLE_SCOPED_CACHE: bool = True`, `CACHE_TTL_SECONDS: int = 300`, `CACHE_MAX_ENTRIES: int = 1000`.
+    - Added tracing and timeout settings: `ENABLE_TRACING: bool = True`, `TRACE_MAX_HISTORY: int = 500`, `LLM_TIMEOUT_SECONDS: float = 15.0`, `LLM_MAX_RETRIES: int = 2`, `LLM_RETRY_BACKOFF_SECONDS: float = 0.5`.
+    - Added model pricing parameters: `COST_PER_MILLION_PROMPT_TOKENS: float = 0.59`, `COST_PER_MILLION_COMPLETION_TOKENS: float = 0.79`.
+  - `backend/app/models/trace.py`:
+    - Created `RequestTrace` SQLAlchemy ORM model capturing `request_id`, `user_id`, `endpoint`, `total_latency_ms`, `slowest_stage`, `slowest_stage_latency_ms`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `estimated_cost_usd`, `is_empty_result`, `is_abstained`, `error_type`, and `spans_data` JSON.
+  - `backend/alembic/versions/0007_operations_traces_and_quotas.py`:
+    - Created database migration for `request_traces` table and indexes; applied with `alembic upgrade head`.
+  - `backend/app/schemas/operations.py`:
+    - Defined Pydantic schemas: `SpanRead`, `RequestTraceRead`, `StageLatencyStat`, `OperationsMetricsResponse`, and `QuotaStatusResponse`.
+  - `backend/app/services/tracing.py`:
+    - Implemented `SpanRecord`, `RequestTracer` (with `span()` context manager, token estimation, cost calculation, slowest stage detection, and metadata sanitization), and `TelemetryStore` (ring buffer computing p50/p95 stage latencies, empty result rates, cache hit rates, and active system alerts).
+  - `backend/app/services/rate_limit.py`:
+    - Implemented identity-aware sliding-window rate limiter and daily quota tracker with role-based limits (`check_and_record`, `get_quota_status`, `RateLimitExceeded` 429 exception with standard `Retry-After`, `X-RateLimit-Limit`, and `X-RateLimit-Remaining` headers).
+  - `backend/app/services/cache.py`:
+    - Implemented `SafeScopedCache` with cryptographic key scoping: `user_id` + `department_id` + `hash(roles)` + `hash(doc_versions)` + `hash(query)`.
+    - Guaranteed strict cross-user isolation: User A's cache can NEVER be served to User B.
+    - Automatic invalidation on document uploads, deletions, rollbacks, or lifecycle transitions.
+  - `backend/app/services/generation.py`:
+    - Fully instrumented generation pipeline with distributed tracing across discrete stages (`policy`, `retrieval`, `reranking`, `generation`, `citation_validation`, `cache`).
+    - Enforced identity rate limits and daily quota checks on ingress.
+    - Added safe scoped cache lookup and write.
+    - Added bounded retries with exponential backoff and explicit timeouts (`LLM_TIMEOUT_SECONDS`) for upstream providers, with graceful fallback to responsible abstention (`abstention_reason = "provider_timeout"`).
+    - Calculated prompt and completion token counts and estimated request cost in USD.
+  - `backend/app/services/llm.py`:
+    - Configured httpx client timeout to `settings.LLM_TIMEOUT_SECONDS`.
+  - `backend/app/api/routes/operations.py`:
+    - Registered endpoints: `GET /api/v1/operations/metrics`, `GET /api/v1/operations/traces`, `GET /api/v1/operations/traces/{request_id}`, `GET /api/v1/operations/quotas`, and `POST /api/v1/operations/cache/clear`.
+  - `backend/app/main.py`:
+    - Mounted `operations.router` at `/api/v1/operations`.
+  - `backend/tests/test_observability.py`:
+    - 8 comprehensive unit, integration, and security tests covering:
+      1. Rate limit exhaustion returning 429 and `Retry-After`.
+      2. Caller quota endpoint status reporting.
+      3. Safe scoped cache hit and strict cross-user isolation.
+      4. Automatic cache invalidation on document version updates.
+      5. Distributed traces recording spans, tokens, cost, and metadata sanitization.
+      6. Operational metrics aggregation with p50/p95 stage latencies and alerts.
+      7. Graceful provider timeout fallback to responsible abstention.
+      8. Admin cache purge and standard user access rejection (403).
+  - `frontend/src/types/index.ts`:
+    - Added `SpanRead`, `RequestTraceRead`, `StageLatencyStat`, `OperationsMetricsResponse`, and `QuotaStatusResponse`.
+  - `frontend/src/api/client.ts`:
+    - Added `operations` API client (`getMetrics`, `getTraces`, `getTrace`, `getQuotas`, `clearCache`).
+  - `frontend/src/pages/AdminPage.tsx`:
+    - Added "Operations & Performance" tab to the Admin Console:
+      - Active operational alerts banner.
+      - Safe scoped cache status and purge button.
+      - KPI cards (Total Requests, Cache Hit Rate, Empty Result Rate, Abstention Rate, Total Tokens, Est. Cost).
+      - Caller identity quota monitor.
+      - Stage latency breakdown table (p50, p95, max ms).
+      - Slowest stage distribution breakdown.
+      - Distributed request traces table with interactive waterfall span modal inspector.
+- **Verification Commands Run**:
+  - `alembic -c backend/alembic.ini upgrade head` -> Applied `0007_operations_traces_and_quotas`.
+  - `pytest backend/tests/test_observability.py -v` -> 8/8 passed in 10.29s.
+  - `pytest backend/tests/ -v` -> 142/142 passed in 105.02s.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
+  - `npm --prefix frontend test -- --run` -> 8/8 passed in 38.58s.
+  - `npm --prefix frontend run build` -> Compiled cleanly with zero errors in 6.88s.
+- **Next Step**: Phase 20 — Production Hardening, Multi-Tenancy and Disaster Recovery.
+
 
 
 

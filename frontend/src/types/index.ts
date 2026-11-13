@@ -546,4 +546,65 @@ export interface ToolAllowlistInfo {
   external_write_actions_permitted: boolean;
 }
 
+export interface SpanRead {
+  span_id: string;
+  parent_span_id?: string | null;
+  stage_name: string;
+  duration_ms: number;
+  status: string;
+  metadata?: Record<string, any>;
+}
+
+export interface RequestTraceRead {
+  id: string;
+  request_id: string;
+  user_id: string;
+  endpoint: string;
+  total_latency_ms: number;
+  slowest_stage: string;
+  slowest_stage_latency_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  is_empty_result: boolean;
+  is_abstained: boolean;
+  error_type?: string | null;
+  spans: SpanRead[];
+  created_at: string;
+}
+
+export interface StageLatencyStat {
+  stage_name: string;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+  samples_count: number;
+}
+
+export interface OperationsMetricsResponse {
+  total_requests: number;
+  empty_result_rate: number;
+  abstention_rate: number;
+  error_count: number;
+  total_tokens: number;
+  total_estimated_cost_usd: number;
+  stage_latencies: StageLatencyStat[];
+  slowest_stages_distribution: Record<string, number>;
+  cache_hit_rate: number;
+  active_alerts: string[];
+}
+
+export interface QuotaStatusResponse {
+  user_id: string;
+  email: string;
+  role: string;
+  rate_limit_per_minute: number;
+  requests_remaining_minute: number;
+  daily_quota: number;
+  daily_queries_used: number;
+  daily_queries_remaining: number;
+  reset_seconds: number;
+}
+
 

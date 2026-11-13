@@ -52,7 +52,7 @@ class GroqLLMProvider(LLMProvider):
             "temperature": temperature,
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS)) as client:
             response = await client.post(self.url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -84,7 +84,7 @@ class OpenAILLMProvider(LLMProvider):
             "temperature": temperature,
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS)) as client:
             response = await client.post(self.url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()

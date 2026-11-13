@@ -33,6 +33,9 @@ import {
   StructuredExtractionResponse,
   WorkflowExecutionRead,
   ToolAllowlistInfo,
+  OperationsMetricsResponse,
+  RequestTraceRead,
+  QuotaStatusResponse,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -400,6 +403,31 @@ export const api = {
 
     async getTools(): Promise<ToolAllowlistInfo> {
       return request<ToolAllowlistInfo>('/api/v1/workflows/tools');
+    },
+  },
+
+  // Operations & Observability
+  operations: {
+    async getMetrics(): Promise<OperationsMetricsResponse> {
+      return request<OperationsMetricsResponse>('/api/v1/operations/metrics');
+    },
+
+    async getTraces(limit: number = 50): Promise<RequestTraceRead[]> {
+      return request<RequestTraceRead[]>(`/api/v1/operations/traces?limit=${limit}`);
+    },
+
+    async getTrace(requestId: string): Promise<RequestTraceRead> {
+      return request<RequestTraceRead>(`/api/v1/operations/traces/${encodeURIComponent(requestId)}`);
+    },
+
+    async getQuotas(): Promise<QuotaStatusResponse> {
+      return request<QuotaStatusResponse>('/api/v1/operations/quotas');
+    },
+
+    async clearCache(): Promise<{ cleared_entries: number; message: string }> {
+      return request<{ cleared_entries: number; message: string }>('/api/v1/operations/cache/clear', {
+        method: 'POST',
+      });
     },
   },
 

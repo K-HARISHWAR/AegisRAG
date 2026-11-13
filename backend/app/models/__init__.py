@@ -10,6 +10,7 @@ from app.models.audit import AuditEvent
 from app.models.feedback import Feedback
 from app.models.thread import Thread, ThreadMessage, ThreadBookmark
 from app.models.workflow import WorkflowExecution
+from app.models.trace import RequestTrace
 
 __all__ = [
     "Base",
@@ -27,4 +28,5 @@ __all__ = [
     "ThreadMessage",
     "ThreadBookmark",
     "WorkflowExecution",
+    "RequestTrace",
 ]

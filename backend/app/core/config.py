@@ -87,6 +87,29 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_PAGES: int = 150
     EXTRACTION_TIMEOUT_SECONDS: float = 30.0
 
+    # Observability, Performance & Cost Controls (Phase 19 Feature Flags)
+    ENABLE_TRACING: bool = True
+    TRACE_MAX_HISTORY: int = 500
+    LLM_TIMEOUT_SECONDS: float = 15.0
+    LLM_MAX_RETRIES: int = 2
+    LLM_RETRY_BACKOFF_SECONDS: float = 0.5
+    COST_PER_MILLION_PROMPT_TOKENS: float = 0.59
+    COST_PER_MILLION_COMPLETION_TOKENS: float = 0.79
+
+    # Rate Limiting & Identity Quotas (Phase 19)
+    ENABLE_RATE_LIMITING: bool = True
+    RATE_LIMIT_EMPLOYEE_PER_MINUTE: int = 30
+    RATE_LIMIT_MANAGER_PER_MINUTE: int = 60
+    RATE_LIMIT_ADMIN_PER_MINUTE: int = 120
+    DAILY_QUOTA_EMPLOYEE: int = 200
+    DAILY_QUOTA_MANAGER: int = 500
+    DAILY_QUOTA_ADMIN: int = 5000
+
+    # Safe Scoped Caching (Phase 19)
+    ENABLE_SCOPED_CACHE: bool = True
+    CACHE_TTL_SECONDS: int = 300
+    CACHE_MAX_ENTRIES: int = 1000
+
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

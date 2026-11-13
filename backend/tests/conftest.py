@@ -59,7 +59,17 @@ def test_settings() -> Settings:
 async def setup_test_db():
     """Create all database tables fresh before each test and tear down after."""
     from app.services.vector_store import get_vector_store
+    from app.services.cache import get_safe_cache
+    from app.services.rate_limit import get_rate_limiter
+    from app.services.tracing import get_telemetry_store
+
     get_vector_store().reset()
+    get_safe_cache().clear()
+    get_rate_limiter().reset_for_test()
+    get_telemetry_store()._traces.clear()
+    get_telemetry_store().cache_hits = 0
+    get_telemetry_store().cache_misses = 0
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -67,6 +77,11 @@ async def setup_test_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     get_vector_store().reset()
+    get_safe_cache().clear()
+    get_rate_limiter().reset_for_test()
+    get_telemetry_store()._traces.clear()
+    get_telemetry_store().cache_hits = 0
+    get_telemetry_store().cache_misses = 0
 
 
 @pytest_asyncio.fixture
