@@ -56,3 +56,4 @@ def downgrade() -> None:
     insp = sa.inspect(bind)
     if insp.has_table("request_traces"):
         op.drop_table("request_traces")
+

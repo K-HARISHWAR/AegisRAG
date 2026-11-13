@@ -312,3 +312,4 @@ def test_admin_cache_purge_and_rbac(client: TestClient, seeded_db: dict) -> None
     res_admin = client.post("/api/v1/operations/cache/clear", headers=get_auth_header(admin.id))
     assert res_admin.status_code == 200
     assert "cleared_entries" in res_admin.json()
+

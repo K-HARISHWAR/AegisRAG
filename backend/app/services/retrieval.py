@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.core.feature_flags import get_feature_flags
 from app.core.logging import get_logger
 from app.core.policy_codes import PolicyReasonCode
 from app.models.document import Document
@@ -144,13 +145,20 @@ async def retrieve_context(
         embedding_provider = get_embedding_provider()
 
     # Determine active retrieval mode: request override takes precedence, then server config
+    flags = get_feature_flags()
     retrieval_mode = query_params.mode or settings.RETRIEVAL_MODE
     # Backwards compatibility: if query_params.hybrid is explicitly False and mode not specified, use vector
     if query_params.mode is None and not query_params.hybrid:
         retrieval_mode = "vector"
 
+    # Feature flag override: if hybrid retrieval is disabled, force pure vector
+    if not flags.is_enabled("enable_hybrid_retrieval"):
+        retrieval_mode = "vector"
+
     # Determine whether to execute reranker
     should_rerank = query_params.rerank if query_params.rerank is not None else settings.ENABLE_RERANKER
+    if not flags.is_enabled("enable_reranking"):
+        should_rerank = False
 
     # -------------------------------------------------------------------------
     # STAGE 1 (Pre-Retrieval Filter): Derive authorized documents from PostgreSQL

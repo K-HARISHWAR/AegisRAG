@@ -77,3 +77,4 @@ class QuotaStatusResponse(BaseModel):
     daily_queries_used: int
     daily_queries_remaining: int
     reset_seconds: int
+

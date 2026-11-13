@@ -353,3 +353,4 @@ def get_telemetry_store() -> TelemetryStore:
     if _global_telemetry_store is None:
         _global_telemetry_store = TelemetryStore(max_history=settings.TRACE_MAX_HISTORY)
     return _global_telemetry_store
+

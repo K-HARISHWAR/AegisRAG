@@ -824,6 +824,57 @@ This log tracks architectural decisions, completed phases, verification commands
   - `npm --prefix frontend run build` -> Compiled cleanly with zero errors in 6.88s.
 - **Next Step**: Phase 20 — Production Hardening, Multi-Tenancy and Disaster Recovery.
 
+---
+
+## Phase 20: Release Hardening, Resilience and Rollback
+- **Date**: 2026-11-13
+- **Completed Deliverables**:
+  - `backend/app/schemas/feature_flags.py` & `backend/app/schemas/__init__.py`:
+    - Defined `FeatureFlagsState` and `FeatureFlagsUpdate` schemas for dynamic runtime configuration.
+  - `backend/app/core/feature_flags.py`:
+    - Implemented thread-safe `FeatureFlagsManager` registry with safe defaults (`enable_hybrid_retrieval`, `enable_reranking`, `enable_evidence_validation`, `enable_scoped_cache`, `enable_rate_limiting`, `enable_tracing`, `enable_workflows`, `enable_ocr`).
+    - Enforced mandatory architectural invariant: feature flags never weaken, bypass, or toggle off PostgreSQL-backed RBAC authorization.
+  - Dynamic service instrumentation with feature flags:
+    - `backend/app/services/cache.py`: Dynamic runtime bypass toggle for scoped caching.
+    - `backend/app/services/rate_limit.py`: Dynamic runtime bypass toggle for sliding-window rate limiting.
+    - `backend/app/services/retrieval.py`: Dynamic toggles for BM25 hybrid search and reranking with graceful fallback to dense retrieval.
+    - `backend/app/services/generation.py`: Dynamic toggle for evidence validation.
+    - `backend/app/api/routes/workflows.py`: Dynamic router dependency (`check_workflows_enabled`) returning HTTP 503 when disabled.
+  - `backend/app/api/routes/health.py`:
+    - Enhanced `/health/ready` probe with deep zero-leakage dependency health checks (PostgreSQL database, vector store, local storage directory, embedding provider, LLM provider, and feature flags).
+    - Enforced strict credential and connection-string sanitization in health status outputs.
+  - `backend/app/services/disaster_recovery.py`:
+    - Implemented `DisasterRecoveryService`:
+      - JSON point-in-time database snapshot backups with cryptographic SHA-256 integrity checksums.
+      - Snapshot integrity verification (`verify_backup_integrity`).
+      - Authoritative vector index rebuild (`rebuild_vector_store_from_database`): completely wipes vector store, purges scoped cache, and re-indexes all active documents from authoritative PostgreSQL records.
+      - Disaster recovery status reporting with recent backups list.
+  - `backend/app/api/routes/operations.py`:
+    - Registered endpoints: `GET /api/v1/operations/feature-flags`, `PATCH /api/v1/operations/feature-flags`, `POST /api/v1/operations/feature-flags/reset`, `POST /api/v1/operations/disaster-recovery/backup`, `POST /api/v1/operations/disaster-recovery/rebuild-index`, and `GET /api/v1/operations/disaster-recovery/status`.
+    - Protected all mutation endpoints with strict Admin-only authorization (`require_role("admin")`) and security audit logging.
+  - `infra/docker/docker-compose.yml`:
+    - Hardened network exposure by binding PostgreSQL strictly to `127.0.0.1:5432:5432`.
+  - `.github/workflows/ci.yml`:
+    - Created multi-job CI workflow: `backend-quality-and-tests`, `continuous-evaluation`, `frontend-quality-and-build`, and `security-scan`.
+  - Operational Runbooks:
+    - `docs/backup-restore-runbook.md`: Detailed procedures for snapshot creation, SHA-256 verification, and vector index reconstruction.
+    - `docs/rollback-and-outage-runbook.md`: Procedures for dynamic feature degradation, database schema rollbacks, and vector store recovery.
+    - `docs/deployment-and-security-checklist.md`: Comprehensive pre-flight deployment verification checklist.
+  - Frontend Operations Console:
+    - `frontend/src/types/index.ts`: Added `FeatureFlagsState`, `DisasterRecoveryBackupItem`, and `DisasterRecoveryStatus`.
+    - `frontend/src/api/client.ts`: Added operations client methods (`getFeatureFlags`, `updateFeatureFlags`, `resetFeatureFlags`, `createBackup`, `rebuildIndex`, `getDisasterRecoveryStatus`).
+    - `frontend/src/pages/AdminPage.tsx`: Added interactive Runtime Server-Side Feature Flags control panel with toggles for all 8 flags, and Disaster Recovery & Vector Store Synchronization panel with snapshot creation, index rebuild trigger, and recent backup history.
+  - `backend/tests/test_hardening_and_resilience.py`:
+    - 7 comprehensive tests covering deep health probes, feature flag mutation/reversion, 403 authorization guards, backup creation with SHA-256 verification, vector index recovery from PostgreSQL authority, and secret sanitization.
+- **Verification Commands Run**:
+  - `pytest backend/tests/test_hardening_and_resilience.py -v` -> 7/7 passed in 8.40s.
+  - `npm --prefix frontend test -- --run` -> 8/8 passed in 16.48s.
+  - `npm --prefix frontend run build` -> Compiled cleanly with zero errors in 4.48s.
+  - `pytest backend/tests/ -v` -> 149/149 passed.
+  - `python evals/run_continuous_eval.py` -> 16/16 passed (100.0% Pass Rate, 100.0% Recall@5, 1.000 MRR, 100.0% Abstention).
+- **Final Status**: All 20 roadmap phases of AegisRAG are successfully implemented, verified, and hardened.
+
+
 
 
 

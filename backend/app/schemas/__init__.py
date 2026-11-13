@@ -67,6 +67,7 @@ from app.schemas.operations import (
     SpanRead,
     StageLatencyStat,
 )
+from app.schemas.feature_flags import FeatureFlagsState, FeatureFlagsUpdate
 
 __all__ = [
     "LoginRequest",
@@ -135,4 +136,6 @@ __all__ = [
     "StageLatencyStat",
     "OperationsMetricsResponse",
     "QuotaStatusResponse",
+    "FeatureFlagsState",
+    "FeatureFlagsUpdate",
 ]

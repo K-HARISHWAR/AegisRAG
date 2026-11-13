@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.feature_flags import get_feature_flags
 from app.core.logging import get_logger, request_id_ctx_var
 from app.core.policy_codes import PolicyReasonCode
 from app.models.document import Document
@@ -397,7 +398,7 @@ async def generate_answer(
     async with tracer.span("citation_validation") as val_span:
         initial_citations = extract_grounded_citations(raw_answer, retrieval_res.chunks)
 
-        if settings.ENABLE_EVIDENCE_VALIDATION:
+        if settings.ENABLE_EVIDENCE_VALIDATION and get_feature_flags().is_enabled("enable_evidence_validation"):
             evidence_result = validate_evidence(
                 query=request.query,
                 raw_answer=raw_answer,

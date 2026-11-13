@@ -36,6 +36,8 @@ import {
   OperationsMetricsResponse,
   RequestTraceRead,
   QuotaStatusResponse,
+  FeatureFlagsState,
+  DisasterRecoveryStatus,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -428,6 +430,40 @@ export const api = {
       return request<{ cleared_entries: number; message: string }>('/api/v1/operations/cache/clear', {
         method: 'POST',
       });
+    },
+
+    async getFeatureFlags(): Promise<FeatureFlagsState> {
+      return request<FeatureFlagsState>('/api/v1/operations/feature-flags');
+    },
+
+    async updateFeatureFlags(updates: Partial<FeatureFlagsState>): Promise<FeatureFlagsState> {
+      return request<FeatureFlagsState>('/api/v1/operations/feature-flags', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    },
+
+    async resetFeatureFlags(): Promise<FeatureFlagsState> {
+      return request<FeatureFlagsState>('/api/v1/operations/feature-flags/reset', {
+        method: 'POST',
+      });
+    },
+
+    async createBackup(): Promise<any> {
+      return request<any>('/api/v1/operations/disaster-recovery/backup', {
+        method: 'POST',
+      });
+    },
+
+    async rebuildIndex(): Promise<any> {
+      return request<any>('/api/v1/operations/disaster-recovery/rebuild-index', {
+        method: 'POST',
+      });
+    },
+
+    async getDisasterRecoveryStatus(): Promise<DisasterRecoveryStatus> {
+      return request<DisasterRecoveryStatus>('/api/v1/operations/disaster-recovery/status');
     },
   },
 

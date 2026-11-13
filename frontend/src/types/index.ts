@@ -607,4 +607,30 @@ export interface QuotaStatusResponse {
   reset_seconds: number;
 }
 
+export interface FeatureFlagsState {
+  enable_hybrid_retrieval: boolean;
+  enable_reranking: boolean;
+  enable_evidence_validation: boolean;
+  enable_scoped_cache: boolean;
+  enable_rate_limiting: boolean;
+  enable_tracing: boolean;
+  enable_workflows: boolean;
+  enable_ocr: boolean;
+}
+
+export interface DisasterRecoveryBackupItem {
+  filename: string;
+  size_bytes: number;
+  modified_at: string;
+}
+
+export interface DisasterRecoveryStatus {
+  database_active_chunks: number;
+  vector_store_healthy: boolean;
+  recent_backups_count: number;
+  recent_backups: DisasterRecoveryBackupItem[];
+  backup_directory: string;
+}
+
+
 

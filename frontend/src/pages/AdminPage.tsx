@@ -28,6 +28,10 @@ import {
   Cpu,
   Database,
   AlertCircle,
+  ToggleLeft,
+  ToggleRight,
+  Archive,
+  RotateCw,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -40,6 +44,8 @@ import {
   OperationsMetricsResponse,
   QuotaStatusResponse,
   RequestTraceRead,
+  FeatureFlagsState,
+  DisasterRecoveryStatus,
   User,
 } from '../types';
 
@@ -67,6 +73,11 @@ export const AdminPage: React.FC = () => {
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
   const [isPurgingCache, setIsPurgingCache] = useState<boolean>(false);
   const [cachePurgedMsg, setCachePurgedMsg] = useState<string | null>(null);
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlagsState | null>(null);
+  const [drStatus, setDrStatus] = useState<DisasterRecoveryStatus | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
+  const [isRebuildingIndex, setIsRebuildingIndex] = useState<boolean>(false);
+  const [drActionMsg, setDrActionMsg] = useState<string | null>(null);
 
   // Triage Modal state
   const [triageItem, setTriageItem] = useState<FeedbackItem | null>(null);
@@ -174,18 +185,76 @@ export const AdminPage: React.FC = () => {
   const fetchOperationsData = async () => {
     setLoading(true);
     try {
-      const [metrics, traceList, quotas] = await Promise.all([
+      const [metrics, traceList, quotas, flags, dr] = await Promise.all([
         api.operations.getMetrics(),
         api.operations.getTraces(50),
         api.operations.getQuotas().catch(() => null),
+        api.operations.getFeatureFlags().catch(() => null),
+        api.operations.getDisasterRecoveryStatus().catch(() => null),
       ]);
       setOperationsMetrics(metrics);
       setTraces(traceList);
       if (quotas) setQuotaStatus(quotas);
+      if (flags) setFeatureFlags(flags);
+      if (dr) setDrStatus(dr);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load operations metrics and traces');
+      setError(err?.message || 'Failed to load operations metrics, feature flags, or disaster recovery data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleFlag = async (flagName: keyof FeatureFlagsState, currentVal: boolean) => {
+    try {
+      const updated = await api.operations.updateFeatureFlags({ [flagName]: !currentVal });
+      setFeatureFlags(updated);
+      setDrActionMsg(`Feature flag '${flagName}' updated to ${!currentVal}`);
+      setTimeout(() => setDrActionMsg(null), 3000);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update feature flag');
+    }
+  };
+
+  const handleResetFlags = async () => {
+    if (!window.confirm('Reset all runtime feature flags to system configuration defaults?')) return;
+    try {
+      const res = await api.operations.resetFeatureFlags();
+      setFeatureFlags(res);
+      setDrActionMsg('All feature flags successfully reset to defaults.');
+      setTimeout(() => setDrActionMsg(null), 4000);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reset feature flags');
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const res = await api.operations.createBackup();
+      setDrActionMsg(`Snapshot backup created: ${res.filename} (${(res.size_bytes / 1024).toFixed(1)} KB)`);
+      setTimeout(() => setDrActionMsg(null), 5000);
+      const updatedDr = await api.operations.getDisasterRecoveryStatus().catch(() => null);
+      if (updatedDr) setDrStatus(updatedDr);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create database snapshot backup');
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleRebuildIndex = async () => {
+    if (!window.confirm('Wipe and completely rebuild vector store index from authoritative PostgreSQL records? This may take several moments.')) return;
+    setIsRebuildingIndex(true);
+    try {
+      const res = await api.operations.rebuildIndex();
+      setDrActionMsg(`Vector store index rebuilt: ${res.documents_processed} documents, ${res.chunks_indexed} chunks re-indexed in ${res.duration_ms}ms.`);
+      setTimeout(() => setDrActionMsg(null), 6000);
+      const updatedDr = await api.operations.getDisasterRecoveryStatus().catch(() => null);
+      if (updatedDr) setDrStatus(updatedDr);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to rebuild vector store');
+    } finally {
+      setIsRebuildingIndex(false);
     }
   };
 
@@ -1161,6 +1230,155 @@ export const AdminPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Action notification banner */}
+            {drActionMsg && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  <span>{drActionMsg}</span>
+                </div>
+                <button onClick={() => setDrActionMsg(null)} className="text-emerald-500 hover:text-emerald-700 cursor-pointer">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Feature Flags & Disaster Recovery Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Feature Flags Panel */}
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <ToggleRight size={16} className="text-indigo-600" />
+                      Runtime Server-Side Feature Flags
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Gradual rollout and instant kill-switches. RBAC authorization is permanently fail-closed.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleResetFlags}
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCw size={11} /> Reset
+                  </button>
+                </div>
+
+                {featureFlags ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {[
+                      { key: 'enable_hybrid_retrieval', label: 'Hybrid BM25 Retrieval', desc: 'Dense + sparse lexical fusion' },
+                      { key: 'enable_reranking', label: 'Cross-Encoder Reranking', desc: 'Deep candidate passage scoring' },
+                      { key: 'enable_evidence_validation', label: 'Evidence Claim Validation', desc: 'Citation integrity & abstention' },
+                      { key: 'enable_scoped_cache', label: 'Safe Policy-Scoped Cache', desc: 'Isolated per-identity response cache' },
+                      { key: 'enable_rate_limiting', label: 'Identity Rate Limiting', desc: 'Sliding-window quota enforcement' },
+                      { key: 'enable_tracing', label: 'Distributed Request Tracing', desc: 'Spans and stage latency profiling' },
+                      { key: 'enable_workflows', label: 'Knowledge Workflows', desc: 'Diff, summarize, and extract' },
+                      { key: 'enable_ocr', label: 'Scanned Document OCR', desc: 'Tesseract optical text extraction' },
+                    ].map(({ key, label, desc }) => {
+                      const enabled = (featureFlags as any)[key] ?? true;
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => handleToggleFlag(key as any, enabled)}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                            enabled
+                              ? 'bg-indigo-50/40 border-indigo-200 hover:bg-indigo-50/70'
+                              : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div>
+                            <div className="font-semibold text-slate-900 text-xs">{label}</div>
+                            <div className="text-[10px] text-slate-500">{desc}</div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`p-1 rounded-lg ${enabled ? 'text-indigo-600' : 'text-slate-400'}`}
+                          >
+                            {enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 py-3 text-center">Loading feature flags...</p>
+                )}
+              </div>
+
+              {/* Disaster Recovery & Index Rebuild Panel */}
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Archive size={16} className="text-indigo-600" />
+                    Disaster Recovery & Vector Store Synchronization
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    PostgreSQL is authoritative. Vector collections can be completely wiped and rebuilt on demand.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] text-slate-400">PostgreSQL Active Chunks</div>
+                    <div className="text-base font-bold text-slate-900 mt-0.5">
+                      {drStatus?.database_active_chunks ?? 0}
+                    </div>
+                    <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">Authoritative Source</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] text-slate-400">Vector Store Health</div>
+                    <div className="text-base font-bold text-slate-900 mt-0.5">
+                      {drStatus?.vector_store_healthy ? (
+                        <span className="text-emerald-600 flex items-center gap-1 text-sm font-semibold">
+                          <CheckCircle2 size={14} /> Synchronized
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 text-sm font-semibold">Needs Rebuild</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{drStatus?.recent_backups_count ?? 0} snapshots stored</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <button
+                    onClick={handleCreateBackup}
+                    disabled={isBackingUp}
+                    className="flex-1 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                  >
+                    <Archive size={13} />
+                    <span>{isBackingUp ? 'Creating Backup...' : 'Create Snapshot Backup'}</span>
+                  </button>
+                  <button
+                    onClick={handleRebuildIndex}
+                    disabled={isRebuildingIndex}
+                    className="flex-1 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                  >
+                    <RotateCw size={13} className={isRebuildingIndex ? 'animate-spin' : ''} />
+                    <span>{isRebuildingIndex ? 'Rebuilding Index...' : 'Rebuild Vector Index'}</span>
+                  </button>
+                </div>
+
+                {drStatus?.recent_backups && drStatus.recent_backups.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Recent Snapshot Backups
+                    </div>
+                    <div className="space-y-1">
+                      {drStatus.recent_backups.slice(0, 3).map((b) => (
+                        <div key={b.filename} className="flex items-center justify-between text-[11px] font-mono text-slate-600 bg-slate-50 p-1.5 rounded">
+                          <span className="truncate max-w-[200px]" title={b.filename}>{b.filename}</span>
+                          <span className="text-slate-400">{(b.size_bytes / 1024).toFixed(1)} KB</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Stage Latencies & Slowest Stages */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

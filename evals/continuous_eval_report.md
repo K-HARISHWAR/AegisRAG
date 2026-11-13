@@ -1,12 +1,12 @@
 # AegisRAG Continuous Evaluation Benchmark Report (v2.0.0)
 
-**Date**: 2026-11-13 11:07:41 UTC  
+**Date**: 2026-11-13 11:34:55 UTC  
 **Dataset**: `evals/golden_benchmark_v2.jsonl` (Version: `v2.0.0`)  
 **Model Version**: `mock-llm-v1` (Provider: `mock`)  
 **Prompt Version**: `v1.0.0`  
 **Retrieval Configuration**: `hybrid` (BGE-Small Dense + BM25 Sparse + RRF)  
 **Total Scenarios**: 16 (10 Development, 6 Holdout)  
-**Total Run Duration**: 7939.9ms  
+**Total Run Duration**: 3754.8ms  
 
 ---
 
@@ -21,7 +21,7 @@
 | **Claim Faithfulness** | **100.0%** | 100.0% | 100.0% | ≥ 95.0% | PASS |
 | **Citation Correctness** | **100.0%** | 100.0% | 100.0% | 100.0% | PASS |
 | **Key Point Coverage** | **100.0%** | 100.0% | 100.0% | ≥ 90.0% | PASS |
-| **Average Latency** | **405.6ms** | 416.4ms | 387.7ms | < 2000ms | PASS |
+| **Average Latency** | **183.3ms** | 183.0ms | 183.8ms | < 2000ms | PASS |
 
 ---
 
@@ -42,22 +42,22 @@
 
 | ID | Split | Category | Persona | Abstain (Act/Exp) | Recall@5 | MRR | Faithfulness | Citation OK | Latency |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `bench_01` | development | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 827.0ms |
-| `bench_02` | development | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 818.7ms |
-| `bench_03` | development | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 192.8ms |
-| `bench_04` | development | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 206.8ms |
-| `bench_05` | development | `confidential_manager` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 716.4ms |
-| `bench_06` | development | `confidential_manager` | `charlie@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 126.4ms |
-| `bench_07` | development | `confidential_manager` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 128.2ms |
-| `bench_08` | development | `confidential_manager` | `diana@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 108.2ms |
-| `bench_09` | development | `unanswerable` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 645.6ms |
-| `bench_10` | development | `adversarial_injection` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 394.1ms |
-| `bench_11` | holdout | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 115.9ms |
-| `bench_12` | holdout | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 582.0ms |
-| `bench_13` | holdout | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 641.5ms |
-| `bench_14` | holdout | `unanswerable` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 183.0ms |
-| `bench_15` | holdout | `cross_department` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 643.8ms |
-| `bench_16` | holdout | `adversarial_injection` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 159.9ms |
+| `bench_01` | development | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 309.9ms |
+| `bench_02` | development | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 280.1ms |
+| `bench_03` | development | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 75.8ms |
+| `bench_04` | development | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 70.4ms |
+| `bench_05` | development | `confidential_manager` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 329.8ms |
+| `bench_06` | development | `confidential_manager` | `charlie@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 58.5ms |
+| `bench_07` | development | `confidential_manager` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 80.3ms |
+| `bench_08` | development | `confidential_manager` | `diana@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 62.2ms |
+| `bench_09` | development | `unanswerable` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 278.5ms |
+| `bench_10` | development | `adversarial_injection` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 284.7ms |
+| `bench_11` | holdout | `standard_policy` | `bob@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 74.3ms |
+| `bench_12` | holdout | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 293.0ms |
+| `bench_13` | holdout | `standard_policy` | `alice@example.com` | False/False | 1.0 | 1.00 | 1.00 | ✓ | 291.6ms |
+| `bench_14` | holdout | `unanswerable` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 78.6ms |
+| `bench_15` | holdout | `cross_department` | `alice@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 292.7ms |
+| `bench_16` | holdout | `adversarial_injection` | `bob@example.com` | True/True | 1.0 | 1.00 | 1.00 | ✓ | 72.4ms |
 
 ---
 

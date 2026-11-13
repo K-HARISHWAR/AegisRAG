@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.feature_flags import get_feature_flags
 from app.core.policy_codes import PolicyReasonCode
 from app.core.workflow_tools import (
     ALLOWLISTED_WORKFLOW_TOOLS,
@@ -40,7 +41,16 @@ from app.services.workflow import (
     render_workflow_pdf,
 )
 
-router = APIRouter(prefix="/workflows", tags=["Workflows"])
+def check_workflows_enabled() -> None:
+    """Verify knowledge workflows feature flag is active."""
+    if not get_feature_flags().is_enabled("enable_workflows"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Knowledge workflows are temporarily disabled by runtime feature flag.",
+        )
+
+
+router = APIRouter(prefix="/workflows", tags=["Workflows"], dependencies=[Depends(check_workflows_enabled)])
 
 
 @router.get(

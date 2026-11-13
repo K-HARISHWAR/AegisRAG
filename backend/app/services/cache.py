@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from app.core.config import get_settings
+from app.core.feature_flags import get_feature_flags
 from app.core.logging import get_logger
 from app.models.user import User
 
@@ -63,7 +64,7 @@ class SafeScopedCache:
 
     def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Retrieve cached response if present and not expired."""
-        if not settings.ENABLE_SCOPED_CACHE:
+        if not settings.ENABLE_SCOPED_CACHE or not get_feature_flags().is_enabled("enable_scoped_cache"):
             return None
 
         if cache_key not in self._cache:
@@ -86,7 +87,7 @@ class SafeScopedCache:
         ttl_seconds: Optional[int] = None,
     ) -> None:
         """Store response in cache with TTL and LRU eviction."""
-        if not settings.ENABLE_SCOPED_CACHE:
+        if not settings.ENABLE_SCOPED_CACHE or not get_feature_flags().is_enabled("enable_scoped_cache"):
             return
 
         ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl
@@ -132,3 +133,4 @@ def get_safe_cache() -> SafeScopedCache:
             default_ttl_seconds=settings.CACHE_TTL_SECONDS,
         )
     return _global_cache
+

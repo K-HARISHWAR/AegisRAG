@@ -108,6 +108,44 @@ async def health_ready(
         checks["vector_store"] = "unhealthy"
         is_ready = False
 
+    # 5. Embedding provider readiness check
+    try:
+        from app.services.embeddings import get_embedding_provider
+        embed_prov = get_embedding_provider()
+        if getattr(embed_prov, "dimension", 0) > 0:
+            checks["embedding_provider"] = "healthy"
+        else:
+            checks["embedding_provider"] = "unhealthy"
+            is_ready = False
+    except Exception as exc:
+        logger.warning("Embedding provider readiness check failed: %s", str(exc))
+        checks["embedding_provider"] = "unhealthy"
+        is_ready = False
+
+    # 6. LLM provider readiness check
+    try:
+        from app.services.llm import get_llm_provider
+        llm_prov = get_llm_provider()
+        if llm_prov is not None:
+            checks["llm_provider"] = "healthy"
+        else:
+            checks["llm_provider"] = "unhealthy"
+            is_ready = False
+    except Exception as exc:
+        logger.warning("LLM provider readiness check failed: %s", str(exc))
+        checks["llm_provider"] = "unhealthy"
+        is_ready = False
+
+    # 7. Feature flags system check
+    try:
+        from app.core.feature_flags import get_feature_flags
+        flags_mgr = get_feature_flags()
+        if flags_mgr is not None:
+            checks["feature_flags"] = "healthy"
+    except Exception as exc:
+        logger.warning("Feature flags readiness check failed: %s", str(exc))
+        checks["feature_flags"] = "unhealthy"
+
     overall_status = "ready" if is_ready else "unhealthy"
     if not is_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

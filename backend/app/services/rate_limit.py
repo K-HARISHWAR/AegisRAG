@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import HTTPException, status
 
 from app.core.config import get_settings
+from app.core.feature_flags import get_feature_flags
 from app.models.user import User
 from app.schemas.operations import QuotaStatusResponse
 
@@ -55,7 +56,7 @@ class RateLimitManager:
         ip_address: Optional[str] = None,
     ) -> Dict[str, int]:
         """Check rate limits and daily quota. Increment counts if permitted; raise 429 if exceeded."""
-        if not settings.ENABLE_RATE_LIMITING:
+        if not settings.ENABLE_RATE_LIMITING or not get_feature_flags().is_enabled("enable_rate_limiting"):
             return {"limit": 1000, "remaining": 1000, "reset": 60}
 
         now = time.time()
@@ -144,3 +145,4 @@ def get_rate_limiter() -> RateLimitManager:
     if _global_rate_limiter is None:
         _global_rate_limiter = RateLimitManager()
     return _global_rate_limiter
+
