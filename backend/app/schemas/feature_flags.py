@@ -28,3 +28,4 @@ class FeatureFlagsUpdate(BaseModel):
     enable_tracing: Optional[bool] = None
     enable_workflows: Optional[bool] = None
     enable_ocr: Optional[bool] = None
+

@@ -26,6 +26,7 @@ dependencies = [
     "pypdf>=4.2.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.2",
+    "pillow>=10.0.0",
     "chromadb>=0.5.0",
 ]
 
@@ -46,3 +47,22 @@ addopts = "-ra -q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E9",
+    "F63",
+    "F7",
+    "F82",
+    "F",
+]
+ignore = [
+    "F401",
+    "F841",
+    "E501",
+]
+

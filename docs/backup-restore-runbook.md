@@ -100,3 +100,4 @@ To verify database-vector synchronization and backup health:
 curl -X GET http://localhost:8000/api/v1/operations/disaster-recovery/status \
   -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
+

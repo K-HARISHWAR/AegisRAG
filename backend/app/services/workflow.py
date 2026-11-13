@@ -857,7 +857,7 @@ def render_workflow_markdown(workflow_type: str, title: str, data: Dict[str, Any
         f"# AegisRAG Knowledge Workflow Report: {title}",
         f"**Generated**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"**Workflow Type**: `{workflow_type}`",
-        f"**Security Standard**: Server-Verified PostgreSQL RBAC",
+        "**Security Standard**: Server-Verified PostgreSQL RBAC",
         "",
         "---",
         "",

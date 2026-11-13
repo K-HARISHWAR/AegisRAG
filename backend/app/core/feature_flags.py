@@ -79,3 +79,4 @@ def get_feature_flags() -> FeatureFlagsManager:
     if _global_flags_manager is None:
         _global_flags_manager = FeatureFlagsManager()
     return _global_flags_manager
+

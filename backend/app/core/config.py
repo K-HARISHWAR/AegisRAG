@@ -149,6 +149,20 @@ class Settings(BaseSettings):
                 )
         return self
 
+    def __repr__(self) -> str:
+        """Sanitized representation that strictly prevents accidental secret leakage in logs."""
+        sensitive_keywords = {"SECRET", "PASSWORD", "KEY", "TOKEN"}
+        items = []
+        for k, v in self.__dict__.items():
+            if any(kw in k.upper() for kw in sensitive_keywords) and v is not None:
+                items.append(f"{k}='**********'")
+            else:
+                items.append(f"{k}={v!r}")
+        return f"Settings({', '.join(items)})"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
 
 @lru_cache
 def get_settings() -> Settings:

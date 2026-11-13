@@ -27,12 +27,12 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e backend/
+          pip install -e "backend/[dev]"
           pip install pytest pytest-asyncio anyio ruff
 
       - name: Code Quality & Lint
         run: |
-          ruff check backend/app backend/tests
+          ruff check --config backend/pyproject.toml backend/app backend/tests
 
       - name: Run Pytest Regression Suite
         run: |
@@ -41,6 +41,7 @@ jobs:
           ENVIRONMENT: test
           SECRET_KEY: test-secret-key-for-ci-pipeline-minimum-32-chars-long!
           LOG_LEVEL: INFO
+          PYTHONPATH: backend:.
 
   continuous-evaluation:
     name: Continuous Grounding & Evidence Benchmark
@@ -58,7 +59,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e backend/
+          pip install -e "backend/[dev]"
 
       - name: Run Golden Benchmark Evaluation
         run: |
@@ -66,6 +67,7 @@ jobs:
         env:
           ENVIRONMENT: test
           SECRET_KEY: test-secret-key-for-ci-pipeline-minimum-32-chars-long!
+          PYTHONPATH: backend:.
 
   frontend-quality-and-build:
     name: Frontend Tests & Production Bundle
@@ -102,9 +104,11 @@ jobs:
 
       - name: Verify No Tracked Secrets or Environment Files
         run: |
-          # Verify .env is not tracked
-          if git ls-files | grep -E "(^\.env$|\.env\.local$|\.pem$|\.key$)"; then
-            echo "ERROR: Sensitive file committed to Git index!"
+          # Verify .env and private keys are not tracked in Git index
+          TRACKED_SECRETS=$(git ls-files | grep -E "(^\.env$|\.env\.local$|\.pem$|\.key$)" || true)
+          if [ -n "$TRACKED_SECRETS" ]; then
+            echo "ERROR: Sensitive file committed to Git index: $TRACKED_SECRETS"
             exit 1
           fi
           echo "Secret sanitization check passed: No environment or private key files tracked."
+

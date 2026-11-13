@@ -6,10 +6,13 @@ from pathlib import Path
 
 os.environ["ENVIRONMENT"] = "test"
 
-# Ensure project root is in sys.path so evals package is accessible
+# Ensure project root and backend are in sys.path so evals and tests are accessible
 root_dir = Path(__file__).resolve().parent.parent.parent
+backend_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 import uuid
 from typing import AsyncGenerator
